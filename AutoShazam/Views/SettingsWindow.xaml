@@ -3,8 +3,10 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Title="Settings"
-        Width="380" Height="560" ResizeMode="NoResize"
+        Icon="/Assets/app.ico"
+        Width="380" Height="630" ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
         Background="{StaticResource WindowBackgroundBrush}">
 
     <shell:WindowChrome.WindowChrome>
@@ -19,9 +21,11 @@
         </Grid.RowDefinitions>
 
         <Grid Grid.Row="0" Background="{StaticResource TitleBarBrush}">
-            <TextBlock Text="Settings" FontWeight="SemiBold" FontSize="13"
-                       Foreground="{StaticResource TitleBarForeground}"
-                       VerticalAlignment="Center" Margin="14,0,0,0"/>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="14,0,0,0">
+                <Image Source="/Assets/app.png" RenderOptions.BitmapScalingMode="HighQuality" Width="16" Height="16" Margin="0,0,8,0"/>
+                <TextBlock Text="Settings" FontWeight="SemiBold" FontSize="13"
+                           Foreground="{StaticResource TitleBarForeground}" VerticalAlignment="Center"/>
+            </StackPanel>
             <Button x:Name="CloseButton" Style="{StaticResource CloseCaptionButtonStyle}"
                     HorizontalAlignment="Right" Click="CloseButton_Click"
                     shell:WindowChrome.IsHitTestVisibleInChrome="True">
@@ -70,10 +74,19 @@
             </StackPanel>
             <TextBlock Foreground="{StaticResource SecondaryTextBrush}" FontSize="11"
                        TextWrapping="Wrap" Margin="2,8,0,0"
-                       Text="A faint noise right at the threshold can make the sound icon flicker rapidly. This is how long a change has to hold steady before the icon and its tooltip actually update. Higher settles the flicker but reacts a little slower; lower reacts faster but may flicker more. Default 200ms."/>
+                       ><Run Text="This is how long a "/><Run Language="en-gb" Text="sound v silence "/><Run Text="change has to hold steady"/><Run Language="en-gb" Text=" to be recognised"/><Run Text=". Higher "/><Run Language="en-gb" Text="is more reliable but"/><Run Text=" slower"/><Run Language="en-gb" Text=" to react"/><Run Text="; lower reacts faster "/><Run Language="en-gb" Text="but more susceptible to false hits"/><Run Text=". Default 200ms."/></TextBlock>
+
+            <TextBlock Text="Updates" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" Margin="2,20,0,6"/>
+            <StackPanel Orientation="Horizontal">
+                <ToggleButton Style="{StaticResource ToggleSwitchStyle}"
+                              IsChecked="{Binding AutomaticallyCheckForUpdates, Mode=TwoWay}"/>
+                <TextBlock Text="Automatically check for updates on startup" VerticalAlignment="Center"
+                           Margin="10,0,0,0" Foreground="{StaticResource PrimaryTextBrush}" TextWrapping="Wrap"/>
+            </StackPanel>
 
             <Button Content="Done" Click="CloseButton_Click" HorizontalAlignment="Right" Margin="0,20,0,0"
                     Padding="18,8" Background="{StaticResource AccentBrush}" Foreground="White" BorderThickness="0"
+                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                     Cursor="Hand"/>
         </StackPanel>
     </Grid>

@@ -8,13 +8,27 @@
     <UseWPF>true</UseWPF>
     <StartupObject>AutoShazam.Program</StartupObject>
     <Version>1.0.0</Version>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <!-- Set by the release workflow's `dotnet publish -p:ReleaseDate=...` to the date this build
+         was actually published on GitHub, so About can show a real release date rather than
+         whenever the user happened to install/update locally. Empty for local/dev builds. -->
+    <ReleaseDate Condition="'$(ReleaseDate)' == ''"></ReleaseDate>
   </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyMetadata Include="ReleaseDate" Value="$(ReleaseDate)" />
+  </ItemGroup>
 
   <ItemGroup>
     <!-- App.xaml must NOT be an ApplicationDefinition (which auto-generates Main) since we
          provide our own Main in Program.cs to call VelopackApp.Build().Run() before WPF starts. -->
     <ApplicationDefinition Remove="App.xaml" />
     <Page Include="App.xaml" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\app.ico" />
+    <Resource Include="Assets\app.png" />
   </ItemGroup>
 
   <ItemGroup>

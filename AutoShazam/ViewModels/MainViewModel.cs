@@ -4,6 +4,7 @@ using AutoShazam.Models;
 using AutoShazam.Services.Audio;
 using AutoShazam.Services.Recognition;
 using AutoShazam.Services.Update;
+using AutoShazam.Views;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Velopack;
@@ -18,6 +19,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>The loaded (and, on selection change, mutated) persisted settings object; saved by the view on window close.</summary>
     public AppSettings Settings { get; }
+
+    /// <summary>True for a genuine Velopack install (the shipped release build), false for a local/dev run.</summary>
+    public bool IsInstalled => _updateService.IsInstalled;
 
     public ObservableCollection<AudioDeviceOption> Microphones { get; } = new();
 
@@ -78,6 +82,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private double soundStateDebounceMs;
 
+    [ObservableProperty]
+    private bool automaticallyCheckForUpdates;
+
     public MainViewModel(AppSettings settings, AppUpdateService updateService, string appDataRoot)
     {
         Settings = settings;
@@ -105,6 +112,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         currentDbFs = silenceThresholdDbFs; // keep the level icon's idle state consistent with the configured threshold
 
         soundStateDebounceMs = settings.SoundStateDebounceMs;
+
+        automaticallyCheckForUpdates = settings.AutomaticallyCheckForUpdates;
 
         _coordinator.RecognitionStarted += (_, _) => RunOnUi(() =>
         {
@@ -254,6 +263,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         Settings.SoundStateDebounceMs = value;
     }
 
+    partial void OnAutomaticallyCheckForUpdatesChanged(bool value)
+    {
+        Settings.AutomaticallyCheckForUpdates = value;
+    }
+
     [RelayCommand(CanExecute = nameof(CanTriggerManual))]
     private Task ShazamAsync() => _coordinator.TriggerManualAsync();
 
@@ -262,23 +276,56 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private static string FormatTimeout(double seconds)
         => seconds == 1 ? "1 second" : $"{seconds:0.#} seconds";
 
+    /// <summary>Silent unless an update is actually found - used for the automatic startup check.</summary>
     public async Task CheckForUpdatesOnStartupAsync()
     {
-        var update = await _updateService.CheckForUpdatesAsync();
-        if (update is null)
+        if (!AutomaticallyCheckForUpdates)
         {
             return;
         }
 
+        var update = await _updateService.CheckForUpdatesAsync();
+        if (update is not null)
+        {
+            PromptToInstallUpdate(update);
+        }
+    }
+
+    /// <summary>Always reports something - used for the "Check for Update" menu item.</summary>
+    public async Task CheckForUpdatesManuallyAsync()
+    {
+        if (!_updateService.IsInstalled)
+        {
+            RunOnUi(() => MessageDialog.ShowInfo(
+                Application.Current.MainWindow,
+                "Check for Update",
+                "Update checks are only available in an installed release build, not this local/dev build."));
+            return;
+        }
+
+        var update = await _updateService.CheckForUpdatesAsync();
+        if (update is null)
+        {
+            RunOnUi(() => MessageDialog.ShowInfo(
+                Application.Current.MainWindow,
+                "Check for Update",
+                $"You're up to date (version {ReleaseInfo.GetVersion()})."));
+            return;
+        }
+
+        PromptToInstallUpdate(update);
+    }
+
+    private void PromptToInstallUpdate(UpdateInfo update)
+    {
         RunOnUi(() =>
         {
-            var choice = MessageBox.Show(
-                $"AutoShazam {update.TargetFullRelease.Version} is available. Download and install now?",
+            bool confirmed = MessageDialog.ShowConfirm(
+                Application.Current.MainWindow,
                 "Update available",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Information);
+                $"AutoShazam {update.TargetFullRelease.Version} is available. Download and install now?");
 
-            if (choice == MessageBoxResult.Yes)
+            if (confirmed)
             {
                 _ = DownloadAndApplyUpdateAsync(update);
             }

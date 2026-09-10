@@ -26,7 +26,10 @@ jobs:
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Publish
-        run: dotnet publish AutoShazam/AutoShazam.csproj -c Release -r win-x64 --self-contained true -o publish
+        shell: bash
+        run: |
+          RELEASE_DATE=$(date -u +%Y-%m-%d)
+          dotnet publish AutoShazam/AutoShazam.csproj -c Release -r win-x64 --self-contained true -o publish -p:ReleaseDate=$RELEASE_DATE
 
       - name: Install vpk
         run: dotnet tool install --global vpk

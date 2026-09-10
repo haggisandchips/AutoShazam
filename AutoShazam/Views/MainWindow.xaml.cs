@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Threading;
 using AutoShazam.Services.Settings;
 using AutoShazam.ViewModels;
 
@@ -96,15 +97,39 @@ public partial class MainWindow : Window
             : Geometry.Parse("M0,0 L10,0 L10,10 L0,10 Z");
     }
 
-    private void SettingsButton_Click(object sender, RoutedEventArgs e)
-    {
-        var settingsWindow = new SettingsWindow
+    private void SettingsMenuItem_Click(object sender, RoutedEventArgs e)
+        // Deferred for the same reason as the other nested File submenu items - give the menu's
+        // capture/popup teardown a full chance to drain before showing a modal dialog.
+        => Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() =>
         {
-            Owner = this,
-            DataContext = _viewModel,
-        };
-        settingsWindow.ShowDialog();
-    }
+            var settingsWindow = new SettingsWindow
+            {
+                Owner = this,
+                DataContext = _viewModel,
+            };
+            settingsWindow.ShowDialog();
+        }));
+
+    private void CheckForUpdateMenuItem_Click(object sender, RoutedEventArgs e)
+        // Deferred: showing a modal dialog synchronously from inside a MenuItem.Click handler can
+        // collide with the Menu's own capture/popup teardown - more so here since this is a nested
+        // submenu item (File > Check for Update), so ApplicationIdle priority gives it a slot only
+        // once that's fully drained.
+        => Dispatcher.BeginInvoke(
+            DispatcherPriority.ApplicationIdle,
+            new Action(() => _ = _viewModel.CheckForUpdatesManuallyAsync()));
+
+    private void ExitMenuItem_Click(object sender, RoutedEventArgs e) => Close();
+
+    private void AboutMenuItem_Click(object sender, RoutedEventArgs e)
+        // Deferred at ApplicationIdle for the same reason as CheckForUpdateMenuItem_Click - this
+        // is a nested item (Auto Shazam > About...), so give the menu's capture/popup teardown a
+        // full chance to drain before showing a modal dialog.
+        => Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() =>
+        {
+            var aboutWindow = new AboutWindow(_viewModel.IsInstalled) { Owner = this };
+            aboutWindow.ShowDialog();
+        }));
 
     private void MinimizeButton_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
 

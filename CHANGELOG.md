@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- **Title bar menu**: the icon and "Auto Shazam" title now open a File / About menu, replacing the
+  gear-icon Settings button and standalone About access; File contains Settings, Check for Update,
+  and Exit.
+- **About dialog**: new dialog showing app icon, version, and release date (the actual GitHub
+  release date, not local install date) — or "Local development build" for a dev run.
+- **Settings**: added an "Automatically check for updates on startup" toggle; fixed the Done
+  button's label not being centered.
+- **Update checks**: dialogs (Check for Update, update-available prompt) now use a custom
+  themed dialog instead of the OS message box, fixing a bug where it could open invisibly; About,
+  Settings, and these dialogs no longer show their own separate taskbar entry.
+
 ## v1.0.0
 
 Initial release.

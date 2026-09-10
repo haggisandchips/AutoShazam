@@ -31,4 +31,7 @@ public sealed class AppSettings
     /// noises that hover right around the threshold.
     /// </summary>
     public double SoundStateDebounceMs { get; set; } = 200;
+
+    /// <summary>Whether to silently check for updates on startup (installed release builds only).</summary>
+    public bool AutomaticallyCheckForUpdates { get; set; } = true;
 }

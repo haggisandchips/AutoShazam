@@ -1,0 +1,80 @@
+<Window x:Class="AutoShazam.Views.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        Title="Settings"
+        Width="380" Height="560" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource WindowBackgroundBrush}">
+
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="40" ResizeBorderThickness="0" GlassFrameThickness="0"
+                             CornerRadius="0" UseAeroCaptionButtons="False"/>
+    </shell:WindowChrome.WindowChrome>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="40"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0" Background="{StaticResource TitleBarBrush}">
+            <TextBlock Text="Settings" FontWeight="SemiBold" FontSize="13"
+                       Foreground="{StaticResource TitleBarForeground}"
+                       VerticalAlignment="Center" Margin="14,0,0,0"/>
+            <Button x:Name="CloseButton" Style="{StaticResource CloseCaptionButtonStyle}"
+                    HorizontalAlignment="Right" Click="CloseButton_Click"
+                    shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                <Path Data="M0,0 L10,10 M0,10 L10,0" Stroke="{StaticResource TitleBarForeground}" StrokeThickness="1"/>
+            </Button>
+        </Grid>
+
+        <StackPanel Grid.Row="1" Margin="24,20,24,20">
+            <TextBlock Text="Microphone" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" Margin="2,0,0,6"/>
+            <ComboBox ItemsSource="{Binding Microphones}"
+                      SelectedItem="{Binding SelectedMicrophone, Mode=TwoWay}">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"/>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+            <TextBlock Text="Used for both the Shazam button and Auto Shazam listening."
+                       Foreground="{StaticResource SecondaryTextBrush}" FontSize="11"
+                       TextWrapping="Wrap" Margin="2,10,0,0"/>
+
+            <TextBlock Text="Turn off Auto Shazam after this much silence"
+                       Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" Margin="2,20,0,6"/>
+            <StackPanel Orientation="Horizontal">
+                <TextBox Width="60" Text="{Binding ExtendedSilenceTimeoutSeconds, UpdateSourceTrigger=LostFocus}"/>
+                <TextBlock Text="seconds" VerticalAlignment="Center" Margin="10,0,0,0"
+                           Foreground="{StaticResource PrimaryTextBrush}"/>
+            </StackPanel>
+
+            <TextBlock Text="Silence threshold (dBFS)"
+                       Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" Margin="2,20,0,6"/>
+            <StackPanel Orientation="Horizontal">
+                <TextBox Width="60" Text="{Binding SilenceThresholdDbFs, UpdateSourceTrigger=LostFocus}"/>
+                <TextBlock Text="dBFS" VerticalAlignment="Center" Margin="10,0,0,0"
+                           Foreground="{StaticResource PrimaryTextBrush}"/>
+            </StackPanel>
+            <TextBlock Foreground="{StaticResource SecondaryTextBrush}" FontSize="11"
+                       TextWrapping="Wrap" Margin="2,8,0,0"><Run Text="Sound below this level counts as silence. dBFS is logarithmic, so small changes"/><Run Text=" "/><Run Text="matter: less negative (e.g. -25) ignores faint background noise; more negative (e.g. -55) is more sensitive. Default -45."/></TextBlock>
+
+            <TextBlock Text="Sound icon debounce"
+                       Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" Margin="2,20,0,6"/>
+            <StackPanel Orientation="Horizontal">
+                <TextBox Width="60" Text="{Binding SoundStateDebounceMs, UpdateSourceTrigger=LostFocus}"/>
+                <TextBlock Text="ms" VerticalAlignment="Center" Margin="10,0,0,0"
+                           Foreground="{StaticResource PrimaryTextBrush}"/>
+            </StackPanel>
+            <TextBlock Foreground="{StaticResource SecondaryTextBrush}" FontSize="11"
+                       TextWrapping="Wrap" Margin="2,8,0,0"
+                       Text="A faint noise right at the threshold can make the sound icon flicker rapidly. This is how long a change has to hold steady before the icon and its tooltip actually update. Higher settles the flicker but reacts a little slower; lower reacts faster but may flicker more. Default 200ms."/>
+
+            <Button Content="Done" Click="CloseButton_Click" HorizontalAlignment="Right" Margin="0,20,0,0"
+                    Padding="18,8" Background="{StaticResource AccentBrush}" Foreground="White" BorderThickness="0"
+                    Cursor="Hand"/>
+        </StackPanel>
+    </Grid>
+</Window>

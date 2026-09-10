@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Extract version from tag
+        id: version
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish
+        run: dotnet publish AutoShazam/AutoShazam.csproj -c Release -r win-x64 --self-contained true -o publish
+
+      - name: Install vpk
+        run: dotnet tool install --global vpk
+
+      - name: Download previous release assets (enables delta packages)
+        run: vpk download github --repoUrl https://github.com/${{ github.repository }} --token ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Pack
+        run: >
+          vpk pack
+          --packId AutoShazam
+          --packVersion ${{ steps.version.outputs.version }}
+          --packDir publish
+          --mainExe AutoShazam.exe
+          --packTitle "AutoShazam"
+
+      - name: Upload release to GitHub
+        run: >
+          vpk upload github
+          --repoUrl https://github.com/${{ github.repository }}
+          --token ${{ secrets.GITHUB_TOKEN }}
+          --publish
+          --releaseName "AutoShazam ${{ steps.version.outputs.version }}"
+          --tag ${{ github.ref_name }}

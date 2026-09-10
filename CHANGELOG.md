@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.1.0
 
 - **Title bar menu**: the icon and "Auto Shazam" title now open a File / About menu, replacing the
   gear-icon Settings button and standalone About access; File contains Settings, Check for Update,

@@ -6,5 +6,5 @@ namespace AutoShazam.Services.Lyrics;
 /// through to the next.</summary>
 internal interface ILyricsProvider
 {
-    Task<string?> GetLyricsAsync(string artist, string title, CancellationToken cancellationToken);
+    Task<LyricsResult?> GetLyricsAsync(string artist, string title, CancellationToken cancellationToken);
 }

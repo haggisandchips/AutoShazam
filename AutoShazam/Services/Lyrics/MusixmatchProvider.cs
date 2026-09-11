@@ -29,7 +29,7 @@ internal sealed class MusixmatchProvider : ILyricsProvider, IDisposable
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
     }
 
-    public async Task<string?> GetLyricsAsync(string artist, string title, CancellationToken cancellationToken)
+    public async Task<LyricsResult?> GetLyricsAsync(string artist, string title, CancellationToken cancellationToken)
     {
         try
         {
@@ -71,7 +71,7 @@ internal sealed class MusixmatchProvider : ILyricsProvider, IDisposable
                 body = body[..marker].TrimEnd();
             }
 
-            return string.IsNullOrWhiteSpace(body) ? null : body;
+            return string.IsNullOrWhiteSpace(body) ? null : new LyricsResult(body, null);
         }
         catch
         {

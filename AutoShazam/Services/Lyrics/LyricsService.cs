@@ -9,11 +9,11 @@ namespace AutoShazam.Services.Lyrics;
 internal sealed class LyricsService : IDisposable
 {
     private readonly IReadOnlyList<ILyricsProvider> _providers;
-    private readonly Dictionary<string, string?> _cache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, LyricsResult?> _cache = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _sync = new();
 
     public LyricsService()
-        : this(new MusixmatchProvider(), new LyricsOvhProvider())
+        : this(new LrcLibProvider(), new MusixmatchProvider(), new LyricsOvhProvider())
     {
     }
 
@@ -22,7 +22,7 @@ internal sealed class LyricsService : IDisposable
         _providers = providers;
     }
 
-    public async Task<string?> GetLyricsAsync(string artist, string title, CancellationToken cancellationToken = default)
+    public async Task<LyricsResult?> GetLyricsAsync(string artist, string title, CancellationToken cancellationToken = default)
     {
         string key = $"{artist}|{title}";
 
@@ -34,7 +34,7 @@ internal sealed class LyricsService : IDisposable
             }
         }
 
-        string? lyrics = null;
+        LyricsResult? lyrics = null;
         foreach (var provider in _providers)
         {
             lyrics = await provider.GetLyricsAsync(artist, title, cancellationToken).ConfigureAwait(false);

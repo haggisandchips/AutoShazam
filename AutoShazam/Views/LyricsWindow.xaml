@@ -48,9 +48,34 @@
             </StackPanel>
 
             <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                <TextBlock Text="{Binding LyricsText}" TextWrapping="Wrap" FontSize="15" LineHeight="26"
-                           Foreground="{StaticResource PrimaryTextBrush}"
-                           Visibility="{Binding HasLyrics, Converter={StaticResource BoolToVisibility}}"/>
+                <StackPanel>
+                    <ItemsControl x:Name="SyncedLyricsList" ItemsSource="{Binding SyncedLyricLines}"
+                                  Visibility="{Binding HasSyncedLyrics, Converter={StaticResource BoolToVisibility}}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="15"
+                                           Margin="0,5" Foreground="{StaticResource PrimaryTextBrush}">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Opacity" Value="0.5"/>
+                                            <Setter Property="FontWeight" Value="Normal"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsCurrent}" Value="True">
+                                                    <Setter Property="Opacity" Value="1"/>
+                                                    <Setter Property="FontWeight" Value="Bold"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <TextBlock Text="{Binding LyricsText}" TextWrapping="Wrap" FontSize="15" LineHeight="26"
+                               Foreground="{StaticResource PrimaryTextBrush}"
+                               Visibility="{Binding ShowPlainLyrics, Converter={StaticResource BoolToVisibility}}"/>
+                </StackPanel>
             </ScrollViewer>
 
             <TextBlock Grid.Row="1" Text="No lyrics available for this track." FontSize="13"

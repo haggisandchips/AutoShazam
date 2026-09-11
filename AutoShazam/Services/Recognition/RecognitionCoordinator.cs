@@ -208,6 +208,7 @@ internal sealed class RecognitionCoordinator : IDisposable
         try
         {
             var deviceId = _deviceId;
+            var recordingStartedUtc = DateTime.UtcNow;
             var samples = await _microphone.RecordSnippetAsync(deviceId, RecognitionClipDuration, CancellationToken.None)
                 .ConfigureAwait(false);
 
@@ -232,7 +233,9 @@ internal sealed class RecognitionCoordinator : IDisposable
             {
                 _currentAutoCooldown = AutoCooldownAfterMatch;
                 _log.Write($"Attempt outcome: matched '{match.Title}' by '{match.Artist}'.");
-                RecognitionSucceeded?.Invoke(this, new RecognitionResult(match.Title, match.Artist, match.CoverArtUrl));
+                RecognitionSucceeded?.Invoke(
+                    this,
+                    new RecognitionResult(match.Title, match.Artist, match.CoverArtUrl, match.OffsetSeconds, recordingStartedUtc));
             }
         }
         catch (MicrophoneStoppedException)

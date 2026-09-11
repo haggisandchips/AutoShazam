@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.3.0
+
+- **Synced lyrics**: lyrics lookup now tries LRCLIB first, which can return line-by-line timed
+  (LRC) lyrics; when available, the Lyrics panel highlights and auto-scrolls to the current line
+  in step with the track, estimated from Shazam's match position rather than needing playback
+  control. Falls back to the existing plain-text sources (Musixmatch, then lyrics.ovh) when LRCLIB
+  has nothing.
+- **Fix**: Auto Shazam re-confirming the same track no longer resets or re-flashes the lyrics
+  panel - only an actual track change reloads lyrics and resyncs the highlighted line.
+
 ## v1.2.0
 
 - **Lyrics**: after a match, looks up lyrics (Musixmatch, falling back to lyrics.ovh) and caches

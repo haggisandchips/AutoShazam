@@ -5,10 +5,18 @@ namespace AutoShazam.Services.Shazam;
 internal sealed class ShazamRecognizeResponse
 {
     [JsonPropertyName("matches")]
-    public List<object>? Matches { get; set; }
+    public List<ShazamMatch>? Matches { get; set; }
 
     [JsonPropertyName("track")]
     public ShazamTrack? Track { get; set; }
+}
+
+internal sealed class ShazamMatch
+{
+    /// <summary>Seconds into the reference track where the fingerprinted clip matched - used to
+    /// estimate the track's current playback position for lyrics sync.</summary>
+    [JsonPropertyName("offset")]
+    public double? Offset { get; set; }
 }
 
 internal sealed class ShazamTrack

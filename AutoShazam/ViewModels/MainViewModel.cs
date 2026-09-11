@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Windows;
+using System.Windows.Threading;
 using AutoShazam.Models;
 using AutoShazam.Services.Audio;
 using AutoShazam.Services.Lyrics;
@@ -22,6 +23,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private readonly LyricsService _lyricsService = new();
     private LyricsWindow? _lyricsWindow;
     private int _lyricsRequestVersion;
+    private readonly DispatcherTimer _lyricsSyncTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
+    private IReadOnlyList<LyricLine>? _syncedLines;
+    private double _matchOffsetSeconds;
+    private DateTime _matchRecordingStartedUtc;
 
     /// <summary>The loaded (and, on selection change, mutated) persisted settings object; saved
     /// immediately on every change - see the On*Changed partial methods below.</summary>
@@ -62,6 +67,18 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     private bool hasLyrics;
+
+    public ObservableCollection<LyricLineViewModel> SyncedLyricLines { get; } = new();
+
+    [ObservableProperty]
+    private bool hasSyncedLyrics;
+
+    [ObservableProperty]
+    private int currentLyricLineIndex = -1;
+
+    /// <summary>True when only plain-text lyrics are available - drives the fallback (non-synced)
+    /// lyrics view, since <see cref="HasLyrics"/> alone is also true for synced results.</summary>
+    public bool ShowPlainLyrics => HasLyrics && !HasSyncedLyrics;
 
     [ObservableProperty]
     private bool isMicrophoneActive;
@@ -129,6 +146,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         automaticallyCheckForUpdates = settings.AutomaticallyCheckForUpdates;
 
+        _lyricsSyncTimer.Tick += (_, _) => UpdateCurrentLyricLine();
+
         _coordinator.RecognitionStarted += (_, _) => RunOnUi(() =>
         {
             IsBusy = true;
@@ -141,13 +160,27 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _coordinator.RecognitionSucceeded += (_, result) => RunOnUi(() =>
         {
             IsBusy = false;
+
+            // Auto Shazam periodically re-confirms whatever's still playing. Treat that as a no-op
+            // for lyrics/sync rather than the same track it already had: resetting the sync clock
+            // would jump the highlighted line, and reloading would flash-rebuild the lyrics list,
+            // even though nothing actually changed.
+            bool isNewTrack = !string.Equals(ResultArtist, result.Artist, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(ResultTitle, result.Title, StringComparison.OrdinalIgnoreCase);
+
             ResultTitle = result.Title;
             ResultArtist = result.Artist;
             CoverArtUrl = result.CoverArtUrl;
             HasResult = true;
             StatusText = string.Empty; // artist/title are already shown prominently above
 
-            _ = LoadLyricsAsync(result.Artist, result.Title);
+            if (isNewTrack)
+            {
+                _matchOffsetSeconds = result.MatchOffsetSeconds;
+                _matchRecordingStartedUtc = result.RecordingStartedUtc;
+
+                _ = LoadLyricsAsync(result.Artist, result.Title);
+            }
         });
 
         _coordinator.RecognitionNoMatch += (_, _) => RunOnUi(() =>
@@ -231,6 +264,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ShazamCommand.NotifyCanExecuteChanged();
     }
 
+    partial void OnHasLyricsChanged(bool value) => OnPropertyChanged(nameof(ShowPlainLyrics));
+
+    partial void OnHasSyncedLyricsChanged(bool value) => OnPropertyChanged(nameof(ShowPlainLyrics));
+
     partial void OnCurrentDbFsChanged(double value)
     {
         bool raw = value > SilenceThresholdDbFs;
@@ -302,7 +339,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private async Task LoadLyricsAsync(string artist, string title)
     {
         int version = ++_lyricsRequestVersion;
-        string? lyrics = await _lyricsService.GetLyricsAsync(artist, title);
+        LyricsResult? result = await _lyricsService.GetLyricsAsync(artist, title);
         if (version != _lyricsRequestVersion)
         {
             return;
@@ -310,9 +347,70 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         RunOnUi(() =>
         {
-            LyricsText = lyrics;
-            HasLyrics = lyrics is not null;
+            _syncedLines = result?.SyncedLines;
+
+            SyncedLyricLines.Clear();
+            CurrentLyricLineIndex = -1;
+            if (_syncedLines is not null)
+            {
+                foreach (var line in _syncedLines)
+                {
+                    SyncedLyricLines.Add(new LyricLineViewModel(line.Text));
+                }
+            }
+
+            HasSyncedLyrics = _syncedLines is { Count: > 0 };
+            LyricsText = result?.PlainText;
+            HasLyrics = HasSyncedLyrics || result?.PlainText is not null;
+
+            // Only worth ticking while there's something to sync and a window open to show it in.
+            if (HasSyncedLyrics && _lyricsWindow is not null)
+            {
+                _lyricsSyncTimer.Start();
+            }
+            else
+            {
+                _lyricsSyncTimer.Stop();
+            }
         });
+    }
+
+    private void UpdateCurrentLyricLine()
+    {
+        if (_syncedLines is not { Count: > 0 })
+        {
+            return;
+        }
+
+        var elapsed = TimeSpan.FromSeconds(_matchOffsetSeconds) + (DateTime.UtcNow - _matchRecordingStartedUtc);
+
+        int index = -1;
+        for (int i = 0; i < _syncedLines.Count; i++)
+        {
+            if (_syncedLines[i].Timestamp > elapsed)
+            {
+                break;
+            }
+
+            index = i;
+        }
+
+        if (index == CurrentLyricLineIndex)
+        {
+            return;
+        }
+
+        if (CurrentLyricLineIndex >= 0 && CurrentLyricLineIndex < SyncedLyricLines.Count)
+        {
+            SyncedLyricLines[CurrentLyricLineIndex].IsCurrent = false;
+        }
+
+        if (index >= 0 && index < SyncedLyricLines.Count)
+        {
+            SyncedLyricLines[index].IsCurrent = true;
+        }
+
+        CurrentLyricLineIndex = index;
     }
 
     [RelayCommand]
@@ -325,8 +423,17 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
 
         _lyricsWindow = new LyricsWindow { Owner = Application.Current.MainWindow, DataContext = this };
-        _lyricsWindow.Closed += (_, _) => _lyricsWindow = null;
+        _lyricsWindow.Closed += (_, _) =>
+        {
+            _lyricsWindow = null;
+            _lyricsSyncTimer.Stop();
+        };
         _lyricsWindow.Show();
+
+        if (HasSyncedLyrics)
+        {
+            _lyricsSyncTimer.Start();
+        }
     }
 
     /// <summary>Silent unless an update is actually found - used for the automatic startup check.</summary>
@@ -420,6 +527,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        _lyricsSyncTimer.Stop();
         _coordinator.Dispose();
         _lyricsService.Dispose();
     }

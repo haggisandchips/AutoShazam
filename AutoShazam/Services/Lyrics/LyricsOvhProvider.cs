@@ -10,7 +10,7 @@ internal sealed class LyricsOvhProvider : ILyricsProvider, IDisposable
 {
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(10) };
 
-    public async Task<string?> GetLyricsAsync(string artist, string title, CancellationToken cancellationToken)
+    public async Task<LyricsResult?> GetLyricsAsync(string artist, string title, CancellationToken cancellationToken)
     {
         try
         {
@@ -26,7 +26,7 @@ internal sealed class LyricsOvhProvider : ILyricsProvider, IDisposable
                 .ConfigureAwait(false);
 
             var lyrics = result?.Lyrics?.Trim();
-            return string.IsNullOrWhiteSpace(lyrics) ? null : lyrics;
+            return string.IsNullOrWhiteSpace(lyrics) ? null : new LyricsResult(lyrics, null);
         }
         catch
         {

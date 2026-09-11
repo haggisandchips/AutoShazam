@@ -9,6 +9,10 @@ internal sealed class ShazamMatchResult
     public required string Title { get; init; }
     public required string Artist { get; init; }
     public string? CoverArtUrl { get; init; }
+
+    /// <summary>Seconds into the track where the matched clip was taken (0 if Shazam didn't report
+    /// one), so the caller can estimate ongoing playback position for lyrics sync.</summary>
+    public double OffsetSeconds { get; init; }
 }
 
 /// <summary>
@@ -96,6 +100,7 @@ internal sealed class ShazamClient : IDisposable
             Title = result.Track.Title ?? "Unknown title",
             Artist = result.Track.Subtitle ?? "Unknown artist",
             CoverArtUrl = coverArt,
+            OffsetSeconds = result.Matches?.FirstOrDefault()?.Offset ?? 0,
         };
     }
 

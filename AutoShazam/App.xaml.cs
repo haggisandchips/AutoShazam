@@ -17,7 +17,7 @@ public partial class App : Application
         var settingsService = new SettingsService(appDataRoot);
         var settings = settingsService.Load();
 
-        var viewModel = new MainViewModel(settings, updateService, appDataRoot);
+        var viewModel = new MainViewModel(settings, updateService, settingsService, appDataRoot);
         var window = new MainWindow(viewModel, settingsService);
         MainWindow = window;
         window.Show();

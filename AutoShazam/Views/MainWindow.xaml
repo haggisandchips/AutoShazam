@@ -134,6 +134,14 @@
                             <TextBlock Text="No song identified yet" FontSize="24"
                                        Foreground="{StaticResource SecondaryTextBrush}" TextWrapping="Wrap"
                                        Visibility="{Binding HasResult, Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}"/>
+
+                            <Button Content="Lyrics" Command="{Binding ShowLyricsCommand}"
+                                    HorizontalAlignment="Left" Margin="0,16,0,0"
+                                    Padding="14,6" Background="{StaticResource PanelBorderBrush}"
+                                    Foreground="{StaticResource PrimaryTextBrush}" BorderThickness="0"
+                                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                    Cursor="Hand"
+                                    Visibility="{Binding HasLyrics, Converter={StaticResource BoolToVisibility}}"/>
                         </StackPanel>
                     </Grid>
 

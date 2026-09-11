@@ -2,7 +2,9 @@ using System.Collections.ObjectModel;
 using System.Windows;
 using AutoShazam.Models;
 using AutoShazam.Services.Audio;
+using AutoShazam.Services.Lyrics;
 using AutoShazam.Services.Recognition;
+using AutoShazam.Services.Settings;
 using AutoShazam.Services.Update;
 using AutoShazam.Views;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -16,8 +18,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private readonly RecognitionCoordinator _coordinator;
     private readonly AudioDeviceService _deviceService = new();
     private readonly AppUpdateService _updateService;
+    private readonly SettingsService _settingsService;
+    private readonly LyricsService _lyricsService = new();
+    private LyricsWindow? _lyricsWindow;
+    private int _lyricsRequestVersion;
 
-    /// <summary>The loaded (and, on selection change, mutated) persisted settings object; saved by the view on window close.</summary>
+    /// <summary>The loaded (and, on selection change, mutated) persisted settings object; saved
+    /// immediately on every change - see the On*Changed partial methods below.</summary>
     public AppSettings Settings { get; }
 
     /// <summary>True for a genuine Velopack install (the shipped release build), false for a local/dev run.</summary>
@@ -49,6 +56,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     private bool hasResult;
+
+    [ObservableProperty]
+    private string? lyricsText;
+
+    [ObservableProperty]
+    private bool hasLyrics;
 
     [ObservableProperty]
     private bool isMicrophoneActive;
@@ -85,10 +98,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool automaticallyCheckForUpdates;
 
-    public MainViewModel(AppSettings settings, AppUpdateService updateService, string appDataRoot)
+    public MainViewModel(AppSettings settings, AppUpdateService updateService, SettingsService settingsService, string appDataRoot)
     {
         Settings = settings;
         _updateService = updateService;
+        _settingsService = settingsService;
         _coordinator = new RecognitionCoordinator(appDataRoot);
 
         foreach (var device in _deviceService.GetCaptureDevices())
@@ -132,6 +146,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
             CoverArtUrl = result.CoverArtUrl;
             HasResult = true;
             StatusText = string.Empty; // artist/title are already shown prominently above
+
+            _ = LoadLyricsAsync(result.Artist, result.Title);
         });
 
         _coordinator.RecognitionNoMatch += (_, _) => RunOnUi(() =>
@@ -180,6 +196,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     partial void OnSelectedMicrophoneChanged(AudioDeviceOption? value)
     {
         Settings.SelectedMicrophoneDeviceId = value?.Id;
+        _settingsService.Save(Settings);
         _coordinator.SetDevice(value?.Id);
     }
 
@@ -245,12 +262,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
     partial void OnExtendedSilenceTimeoutSecondsChanged(double value)
     {
         Settings.ExtendedSilenceTimeoutSeconds = value;
+        _settingsService.Save(Settings);
         _coordinator.SetExtendedSilenceTimeout(TimeSpan.FromSeconds(Math.Max(1, value)));
     }
 
     partial void OnSilenceThresholdDbFsChanged(double value)
     {
         Settings.SilenceThresholdDbFs = value;
+        _settingsService.Save(Settings);
         _coordinator.SetSilenceThreshold(value);
 
         // Re-evaluate against the new threshold immediately rather than waiting for the next
@@ -261,11 +280,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
     partial void OnSoundStateDebounceMsChanged(double value)
     {
         Settings.SoundStateDebounceMs = value;
+        _settingsService.Save(Settings);
     }
 
     partial void OnAutomaticallyCheckForUpdatesChanged(bool value)
     {
         Settings.AutomaticallyCheckForUpdates = value;
+        _settingsService.Save(Settings);
     }
 
     [RelayCommand(CanExecute = nameof(CanTriggerManual))]
@@ -275,6 +296,38 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private static string FormatTimeout(double seconds)
         => seconds == 1 ? "1 second" : $"{seconds:0.#} seconds";
+
+    // Guards against a slower lookup for an earlier match overwriting a newer one that resolved
+    // first (or resolved not-found) - only the most recent request's result is ever applied.
+    private async Task LoadLyricsAsync(string artist, string title)
+    {
+        int version = ++_lyricsRequestVersion;
+        string? lyrics = await _lyricsService.GetLyricsAsync(artist, title);
+        if (version != _lyricsRequestVersion)
+        {
+            return;
+        }
+
+        RunOnUi(() =>
+        {
+            LyricsText = lyrics;
+            HasLyrics = lyrics is not null;
+        });
+    }
+
+    [RelayCommand]
+    private void ShowLyrics()
+    {
+        if (_lyricsWindow is not null)
+        {
+            _lyricsWindow.Activate();
+            return;
+        }
+
+        _lyricsWindow = new LyricsWindow { Owner = Application.Current.MainWindow, DataContext = this };
+        _lyricsWindow.Closed += (_, _) => _lyricsWindow = null;
+        _lyricsWindow.Show();
+    }
 
     /// <summary>Silent unless an update is actually found - used for the automatic startup check.</summary>
     public async Task CheckForUpdatesOnStartupAsync()
@@ -365,5 +418,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    public void Dispose() => _coordinator.Dispose();
+    public void Dispose()
+    {
+        _coordinator.Dispose();
+        _lyricsService.Dispose();
+    }
 }

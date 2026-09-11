@@ -1,0 +1,61 @@
+<Window x:Class="AutoShazam.Views.LyricsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        Title="Lyrics"
+        Icon="/Assets/app.ico"
+        Width="440" MinWidth="360" MinHeight="360"
+        SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{StaticResource WindowBackgroundBrush}">
+
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="40" ResizeBorderThickness="6" GlassFrameThickness="0"
+                             CornerRadius="0" UseAeroCaptionButtons="False"/>
+    </shell:WindowChrome.WindowChrome>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="40"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0" Background="{StaticResource TitleBarBrush}">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="14,0,0,0">
+                <Image Source="/Assets/app.png" RenderOptions.BitmapScalingMode="HighQuality" Width="16" Height="16" Margin="0,0,8,0"/>
+                <TextBlock Text="Lyrics" FontWeight="SemiBold" FontSize="13"
+                           Foreground="{StaticResource TitleBarForeground}" VerticalAlignment="Center"/>
+            </StackPanel>
+            <Button x:Name="CloseButton" Style="{StaticResource CloseCaptionButtonStyle}"
+                    HorizontalAlignment="Right" Click="CloseButton_Click"
+                    shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                <Path Data="M0,0 L10,10 M0,10 L10,0" Stroke="{StaticResource TitleBarForeground}" StrokeThickness="1"/>
+            </Button>
+        </Grid>
+
+        <Grid Grid.Row="1" Margin="24,20,24,20">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <StackPanel Grid.Row="0" Margin="0,0,0,16">
+                <TextBlock Text="{Binding ResultArtist}" FontSize="16" FontWeight="Bold"
+                           Foreground="{StaticResource PrimaryTextBrush}" TextWrapping="Wrap"/>
+                <TextBlock Text="{Binding ResultTitle}" FontSize="13"
+                           Foreground="{StaticResource SecondaryTextBrush}" TextWrapping="Wrap" Margin="0,2,0,0"/>
+            </StackPanel>
+
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                <TextBlock Text="{Binding LyricsText}" TextWrapping="Wrap" FontSize="15" LineHeight="26"
+                           Foreground="{StaticResource PrimaryTextBrush}"
+                           Visibility="{Binding HasLyrics, Converter={StaticResource BoolToVisibility}}"/>
+            </ScrollViewer>
+
+            <TextBlock Grid.Row="1" Text="No lyrics available for this track." FontSize="13"
+                       Foreground="{StaticResource SecondaryTextBrush}" TextWrapping="Wrap"
+                       Visibility="{Binding HasLyrics, Converter={StaticResource BoolToVisibility}, ConverterParameter=Invert}"/>
+        </Grid>
+    </Grid>
+</Window>

@@ -11,6 +11,10 @@ public partial class MainWindow : Window
     private readonly MainViewModel _viewModel;
     private readonly SettingsService _settingsService;
 
+    // Position/size change while dragging or resizing fire continuously - debounce those into a
+    // single write shortly after the user stops, rather than hitting the database on every pixel.
+    private readonly DispatcherTimer _placementSaveTimer = new() { Interval = TimeSpan.FromMilliseconds(500) };
+
     public MainWindow(MainViewModel viewModel, SettingsService settingsService)
     {
         InitializeComponent();
@@ -21,9 +25,34 @@ public partial class MainWindow : Window
 
         RestoreWindowPlacement();
 
-        StateChanged += (_, _) => UpdateMaximizeIcon();
-        Closing += (_, _) => SaveWindowPlacement();
+        _placementSaveTimer.Tick += (_, _) =>
+        {
+            _placementSaveTimer.Stop();
+            SaveWindowPlacement();
+        };
+
+        LocationChanged += (_, _) => SchedulePlacementSave();
+        SizeChanged += (_, _) => SchedulePlacementSave();
+        StateChanged += (_, _) =>
+        {
+            UpdateMaximizeIcon();
+            // Maximize/minimize/restore are discrete, infrequent events - save immediately rather
+            // than waiting out the drag/resize debounce.
+            _placementSaveTimer.Stop();
+            SaveWindowPlacement();
+        };
+        Closing += (_, _) =>
+        {
+            _placementSaveTimer.Stop();
+            SaveWindowPlacement();
+        };
         Closed += (_, _) => _viewModel.Dispose();
+    }
+
+    private void SchedulePlacementSave()
+    {
+        _placementSaveTimer.Stop();
+        _placementSaveTimer.Start();
     }
 
     private void RestoreWindowPlacement()
@@ -77,7 +106,9 @@ public partial class MainWindow : Window
 
         settings.WindowMaximized = maximized;
 
-        // RestoreBounds hold the pre-maximize geometry even while maximized/minimized.
+        // RestoreBounds hold the pre-maximize geometry even while maximized/minimized - avoids
+        // persisting the off-screen coordinates Windows gives a minimized window, or the
+        // full-monitor bounds of a maximized one.
         var bounds = maximized || WindowState == WindowState.Minimized ? RestoreBounds : new Rect(Left, Top, Width, Height);
         if (bounds.Width > 0 && bounds.Height > 0)
         {

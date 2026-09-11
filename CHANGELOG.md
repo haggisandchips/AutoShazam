@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.2.0
+
+- **Lyrics**: after a match, looks up lyrics (Musixmatch, falling back to lyrics.ovh) and caches
+  them for the session; a "Lyrics" button appears below the artist/title when found, opening a
+  panel that sizes itself to fit the lyrics (capped to the screen) instead of always scrolling.
+- **Settings storage**: switched from a flat `settings.json` to a local SQLite database, mainly to
+  discourage casually hand-editing the file; an existing `settings.json` is migrated in once, then
+  removed.
+- **Fix**: window position/size/state and every settings change now save immediately instead of
+  only on a graceful close, so a crash, force-kill, or ungraceful shutdown no longer silently
+  discards them.
+
 ## v1.1.0
 
 - **Title bar menu**: the icon and "Auto Shazam" title now open a File / About menu, replacing the

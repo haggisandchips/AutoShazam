@@ -206,7 +206,55 @@
                             <Button Content="Lyrics" Command="{Binding ShowLyricsCommand}"
                                     Style="{StaticResource SecondaryButtonStyle}"
                                     HorizontalAlignment="Left" Margin="0,16,0,0" Padding="14,6"
-                                    Visibility="{Binding HasLyrics, Converter={StaticResource BoolToVisibility}}"/>
+                                    Visibility="{Binding ShowPlainLyrics, Converter={StaticResource BoolToVisibility}}"/>
+
+                            <!-- Mini synced-lyrics preview: a 3-line window (previous/current/next)
+                                 that scrolls the upcoming line into the middle slot shortly before
+                                 it's actually due - see MainViewModel.PreviewLyricLineIndex and
+                                 MainWindow.xaml.cs's animation of the ScrollViewer's offset (via
+                                 ScrollViewerOffsetAnimation - VerticalOffset itself isn't a
+                                 dependency property, so it can't be animated directly). The panel
+                                 stays fully blank until shortly before the first line is due. -->
+                            <Border Background="{StaticResource PanelBorderBrush}" CornerRadius="10"
+                                    Padding="14,8" Margin="0,16,0,0"
+                                    Visibility="{Binding HasSyncedLyrics, Converter={StaticResource BoolToVisibility}}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <ScrollViewer x:Name="LyricsPreviewScroll" Grid.Column="0" Height="84" Margin="0,0,8,0"
+                                                  VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled"
+                                                  IsHitTestVisible="False">
+                                        <StackPanel>
+                                            <!-- Leading spacer (84 = 3 lines): offset 0 shows nothing, so the
+                                                 panel starts fully blank instead of the first line appearing
+                                                 immediately. Trailing spacer: gives the last line room to
+                                                 scroll all the way to the middle slot with the bottom slot
+                                                 blank, since there's no next line to show there. -->
+                                            <Border Height="84"/>
+                                            <ItemsControl ItemsSource="{Binding SyncedLyricLines}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding Text}" Height="28" FontSize="14"
+                                                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                                   Style="{StaticResource SyncedLyricLineTextStyle}"/>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                            <Border Height="84"/>
+                                        </StackPanel>
+                                    </ScrollViewer>
+
+                                    <Button Grid.Column="1" Style="{StaticResource TitleBarIconButtonStyle}"
+                                            VerticalAlignment="Top" HorizontalAlignment="Right"
+                                            Command="{Binding ShowLyricsCommand}"
+                                            ToolTip="Open lyrics in a separate window">
+                                        <TextBlock Text="&#xE8A7;" FontFamily="Segoe MDL2 Assets" FontSize="14"/>
+                                    </Button>
+                                </Grid>
+                            </Border>
                         </StackPanel>
                     </Grid>
 

@@ -28,6 +28,17 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private double _matchOffsetSeconds;
     private DateTime _matchRecordingStartedUtc;
 
+    /// <summary>How far ahead of a line's real timestamp the mini preview panel starts scrolling
+    /// it into the middle slot - matched to the panel's own scroll-animation duration in
+    /// MainWindow.xaml.cs, so the animation finishes right as the line becomes current.</summary>
+    private static readonly TimeSpan LyricsPreviewLead = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>How far ahead of the very first line's timestamp the preview panel scrolls it into
+    /// the bottom slot - longer than <see cref="LyricsPreviewLead"/> since otherwise the first line
+    /// would sit there, looking "active", for however long the track's intro runs before anything
+    /// is actually sung; before this, the panel stays fully blank.</summary>
+    private static readonly TimeSpan LyricsPreviewFirstLineLead = TimeSpan.FromMilliseconds(500);
+
     /// <summary>The loaded (and, on selection change, mutated) persisted settings object; saved
     /// immediately on every change - see the On*Changed partial methods below.</summary>
     public AppSettings Settings { get; }
@@ -92,6 +103,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     private int currentLyricLineIndex = -1;
+
+    /// <summary>Index of the line that should sit in the middle of the main window's mini lyrics
+    /// preview panel - unlike <see cref="CurrentLyricLineIndex"/> (which flips exactly on time and
+    /// drives highlighting), this advances <see cref="LyricsPreviewLead"/> early so the panel's
+    /// scroll animation has time to settle by the moment a line is genuinely current. -2 is the
+    /// "nothing due yet" reset state (panel fully blank) - -1 means the first line has scrolled
+    /// into the bottom slot but isn't current yet.</summary>
+    [ObservableProperty]
+    private int previewLyricLineIndex = -2;
 
     /// <summary>True when only plain-text lyrics are available - drives the fallback (non-synced)
     /// lyrics view, since <see cref="HasLyrics"/> alone is also true for synced results.</summary>
@@ -403,6 +423,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _syncedLines = null;
         SyncedLyricLines.Clear();
         CurrentLyricLineIndex = -1;
+        PreviewLyricLineIndex = -2;
         HasSyncedLyrics = false;
         LyricsText = null;
         HasLyrics = false;
@@ -441,6 +462,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
             SyncedLyricLines.Clear();
             CurrentLyricLineIndex = -1;
+            PreviewLyricLineIndex = -2;
             if (_syncedLines is not null)
             {
                 foreach (var line in _syncedLines)
@@ -453,8 +475,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
             LyricsText = result?.PlainText;
             HasLyrics = HasSyncedLyrics || result?.PlainText is not null;
 
-            // Only worth ticking while there's something to sync and a window open to show it in.
-            if (HasSyncedLyrics && _lyricsWindow is not null)
+            // Keeps running for as long as there's something to sync, regardless of whether the
+            // separate Lyrics window is open - the main window's mini preview panel needs live
+            // updates too.
+            if (HasSyncedLyrics)
             {
                 _lyricsSyncTimer.Start();
             }
@@ -474,8 +498,38 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         var elapsed = TimeSpan.FromSeconds(_matchOffsetSeconds) + (DateTime.UtcNow - _matchRecordingStartedUtc);
 
+        int index = FindLyricLineIndex(elapsed);
+        if (index != CurrentLyricLineIndex)
+        {
+            if (CurrentLyricLineIndex >= 0 && CurrentLyricLineIndex < SyncedLyricLines.Count)
+            {
+                SyncedLyricLines[CurrentLyricLineIndex].IsCurrent = false;
+            }
+
+            if (index >= 0 && index < SyncedLyricLines.Count)
+            {
+                SyncedLyricLines[index].IsCurrent = true;
+            }
+
+            CurrentLyricLineIndex = index;
+        }
+
+        // Scroll the mini preview panel into position ahead of time - see LyricsPreviewLead. The
+        // very first line gets a longer lead (and stays off entirely before that), so it doesn't
+        // just sit there for however long the track's intro runs.
+        int preview = FindLyricLineIndex(elapsed + LyricsPreviewLead);
+        if (preview < 0 && elapsed + LyricsPreviewFirstLineLead < _syncedLines[0].Timestamp)
+        {
+            preview = -2;
+        }
+
+        PreviewLyricLineIndex = preview;
+    }
+
+    private int FindLyricLineIndex(TimeSpan elapsed)
+    {
         int index = -1;
-        for (int i = 0; i < _syncedLines.Count; i++)
+        for (int i = 0; i < _syncedLines!.Count; i++)
         {
             if (_syncedLines[i].Timestamp > elapsed)
             {
@@ -485,22 +539,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             index = i;
         }
 
-        if (index == CurrentLyricLineIndex)
-        {
-            return;
-        }
-
-        if (CurrentLyricLineIndex >= 0 && CurrentLyricLineIndex < SyncedLyricLines.Count)
-        {
-            SyncedLyricLines[CurrentLyricLineIndex].IsCurrent = false;
-        }
-
-        if (index >= 0 && index < SyncedLyricLines.Count)
-        {
-            SyncedLyricLines[index].IsCurrent = true;
-        }
-
-        CurrentLyricLineIndex = index;
+        return index;
     }
 
     [RelayCommand]
@@ -512,18 +551,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
+        // Not tied to the sync timer's start/stop - that now runs for as long as HasSyncedLyrics
+        // is true, independent of this window, since the main window's mini preview panel needs
+        // it too.
         _lyricsWindow = new LyricsWindow { Owner = Application.Current.MainWindow, DataContext = this };
-        _lyricsWindow.Closed += (_, _) =>
-        {
-            _lyricsWindow = null;
-            _lyricsSyncTimer.Stop();
-        };
+        _lyricsWindow.Closed += (_, _) => _lyricsWindow = null;
         _lyricsWindow.Show();
-
-        if (HasSyncedLyrics)
-        {
-            _lyricsSyncTimer.Start();
-        }
     }
 
     /// <summary>Silent unless an update is actually found - used for the automatic startup check.</summary>

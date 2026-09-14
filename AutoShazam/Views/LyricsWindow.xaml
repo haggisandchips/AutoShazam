@@ -54,20 +54,7 @@
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="15"
-                                           Margin="0,5" Foreground="{StaticResource PrimaryTextBrush}">
-                                    <TextBlock.Style>
-                                        <Style TargetType="TextBlock">
-                                            <Setter Property="Opacity" Value="0.5"/>
-                                            <Setter Property="FontWeight" Value="Normal"/>
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding IsCurrent}" Value="True">
-                                                    <Setter Property="Opacity" Value="1"/>
-                                                    <Setter Property="FontWeight" Value="Bold"/>
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </TextBlock.Style>
-                                </TextBlock>
+                                           Margin="0,5" Style="{StaticResource SyncedLyricLineTextStyle}"/>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>

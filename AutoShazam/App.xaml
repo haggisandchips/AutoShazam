@@ -26,6 +26,21 @@
             <converters:DbFsToPurpleBrushConverter x:Key="DbFsToPurpleBrush"/>
             <SolidColorBrush x:Key="MicActiveBrush" Color="#3DDC5A"/>
 
+            <!-- Synced lyric line: dim + normal weight for context lines, full opacity + bold for
+                 the line currently playing. Shared by the Lyrics window and the main window's mini
+                 preview panel - each still sets its own size/wrapping/margin. -->
+            <Style x:Key="SyncedLyricLineTextStyle" TargetType="TextBlock">
+                <Setter Property="Foreground" Value="{StaticResource PrimaryTextBrush}"/>
+                <Setter Property="Opacity" Value="0.5"/>
+                <Setter Property="FontWeight" Value="Normal"/>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsCurrent}" Value="True">
+                        <Setter Property="Opacity" Value="1"/>
+                        <Setter Property="FontWeight" Value="Bold"/>
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
             <!-- Toolbar microphone toggle: green whenever it's the selected source, regardless of
                  whether the device is actually capturing right now. Click to select it, right-click
                  to pick a specific device. -->

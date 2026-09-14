@@ -1,8 +1,10 @@
+using System.ComponentModel;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using AutoShazam.Models;
 using AutoShazam.Services.Settings;
@@ -12,6 +14,9 @@ namespace AutoShazam.Views;
 
 public partial class MainWindow : Window
 {
+    // Must match the fixed Height set on each line in the lyrics preview's DataTemplate.
+    private const double LyricsPreviewLineHeight = 28;
+
     private readonly MainViewModel _viewModel;
     private readonly SettingsService _settingsService;
 
@@ -26,6 +31,8 @@ public partial class MainWindow : Window
         _viewModel = viewModel;
         _settingsService = settingsService;
         DataContext = _viewModel;
+
+        _viewModel.PropertyChanged += ViewModel_PropertyChanged;
 
         RestoreWindowPlacement();
 
@@ -50,7 +57,47 @@ public partial class MainWindow : Window
             _placementSaveTimer.Stop();
             SaveWindowPlacement();
         };
-        Closed += (_, _) => _viewModel.Dispose();
+        Closed += (_, _) =>
+        {
+            _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
+            _viewModel.Dispose();
+        };
+    }
+
+    private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MainViewModel.PreviewLyricLineIndex))
+        {
+            AnimateLyricsPreview();
+        }
+    }
+
+    private void AnimateLyricsPreview()
+    {
+        // +2 accounts for the leading 84px (3-line) blank spacer in the ScrollViewer's content -
+        // see MainWindow.xaml - so offset 0 shows nothing, and each step afterward centers one
+        // more line.
+        double targetOffset = (_viewModel.PreviewLyricLineIndex + 2) * LyricsPreviewLineHeight;
+
+        if (_viewModel.PreviewLyricLineIndex <= -2)
+        {
+            // A reset (new track, or the result was cleared) - the index only ever goes back to
+            // -2 via an explicit reset, never as part of normal forward progress (-2 -> -1, the
+            // first line scrolling into the bottom slot, is a normal animated transition like any
+            // other), so snap instantly instead of animating backward from wherever the panel
+            // happened to be.
+            LyricsPreviewScroll.BeginAnimation(ScrollViewerOffsetAnimation.VerticalOffsetProperty, null);
+            ScrollViewerOffsetAnimation.SetVerticalOffset(LyricsPreviewScroll, targetOffset);
+            return;
+        }
+
+        var animation = new DoubleAnimation
+        {
+            To = targetOffset,
+            Duration = TimeSpan.FromMilliseconds(220),
+            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseInOut },
+        };
+        LyricsPreviewScroll.BeginAnimation(ScrollViewerOffsetAnimation.VerticalOffsetProperty, animation);
     }
 
     private void SchedulePlacementSave()

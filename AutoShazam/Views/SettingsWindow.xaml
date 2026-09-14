@@ -33,61 +33,44 @@
             </Button>
         </Grid>
 
-        <StackPanel Grid.Row="1" Margin="24,20,24,20">
-            <TextBlock Text="Microphone" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" Margin="2,0,0,6"/>
-            <ComboBox ItemsSource="{Binding Microphones}"
-                      SelectedItem="{Binding SelectedMicrophone, Mode=TwoWay}">
-                <ComboBox.ItemTemplate>
-                    <DataTemplate>
-                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"/>
-                    </DataTemplate>
-                </ComboBox.ItemTemplate>
-            </ComboBox>
-            <TextBlock Text="Used for both the Shazam button and Auto Shazam listening."
-                       Foreground="{StaticResource SecondaryTextBrush}" FontSize="11"
-                       TextWrapping="Wrap" Margin="2,10,0,0"/>
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="24,20,24,20">
+                <TextBlock Text="Microphones" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" Margin="2,0,0,6"/>
+                <ItemsControl ItemsSource="{Binding Microphones}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <CheckBox Content="{Binding Name}" IsChecked="{Binding IsOffered, Mode=TwoWay}"
+                                      Foreground="{StaticResource PrimaryTextBrush}" Margin="2,5"/>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
 
-            <TextBlock Text="Turn off Auto Shazam after this much silence"
-                       Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" Margin="2,20,0,6"/>
-            <StackPanel Orientation="Horizontal">
-                <TextBox Width="60" Text="{Binding ExtendedSilenceTimeoutSeconds, UpdateSourceTrigger=LostFocus}"/>
-                <TextBlock Text="seconds" VerticalAlignment="Center" Margin="10,0,0,0"
-                           Foreground="{StaticResource PrimaryTextBrush}"/>
+                <TextBlock Text="Speakers" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" Margin="2,20,0,6"/>
+                <ItemsControl ItemsSource="{Binding Speakers}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <CheckBox Content="{Binding Name}" IsChecked="{Binding IsOffered, Mode=TwoWay}"
+                                      Foreground="{StaticResource PrimaryTextBrush}" Margin="2,5"/>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <TextBlock Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" TextWrapping="Wrap" Margin="2,14,0,0"
+                           Text="Checked devices are offered when you right-click the microphone or speaker icon. Leave everything unchecked to offer them all."/>
+
+                <TextBlock Text="Updates" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" Margin="2,20,0,6"/>
+                <StackPanel Orientation="Horizontal">
+                    <ToggleButton Style="{StaticResource ToggleSwitchStyle}"
+                                  IsChecked="{Binding AutomaticallyCheckForUpdates, Mode=TwoWay}"/>
+                    <TextBlock Text="Automatically check for updates on startup" VerticalAlignment="Center"
+                               Margin="10,0,0,0" Foreground="{StaticResource PrimaryTextBrush}" TextWrapping="Wrap"/>
+                </StackPanel>
+
+                <Button Content="Done" Click="CloseButton_Click" HorizontalAlignment="Right" Margin="0,20,0,0"
+                        Padding="18,8" Background="{StaticResource AccentBrush}" Foreground="White" BorderThickness="0"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                        Cursor="Hand"/>
             </StackPanel>
-
-            <TextBlock Text="Silence threshold (dBFS)"
-                       Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" Margin="2,20,0,6"/>
-            <StackPanel Orientation="Horizontal">
-                <TextBox Width="60" Text="{Binding SilenceThresholdDbFs, UpdateSourceTrigger=LostFocus}"/>
-                <TextBlock Text="dBFS" VerticalAlignment="Center" Margin="10,0,0,0"
-                           Foreground="{StaticResource PrimaryTextBrush}"/>
-            </StackPanel>
-            <TextBlock Foreground="{StaticResource SecondaryTextBrush}" FontSize="11"
-                       TextWrapping="Wrap" Margin="2,8,0,0"><Run Text="Sound below this level counts as silence. dBFS is logarithmic, so small changes"/><Run Text=" "/><Run Text="matter: less negative (e.g. -25) ignores faint background noise; more negative (e.g. -55) is more sensitive. Default -45."/></TextBlock>
-
-            <TextBlock Text="Sound icon debounce"
-                       Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" Margin="2,20,0,6"/>
-            <StackPanel Orientation="Horizontal">
-                <TextBox Width="60" Text="{Binding SoundStateDebounceMs, UpdateSourceTrigger=LostFocus}"/>
-                <TextBlock Text="ms" VerticalAlignment="Center" Margin="10,0,0,0"
-                           Foreground="{StaticResource PrimaryTextBrush}"/>
-            </StackPanel>
-            <TextBlock Foreground="{StaticResource SecondaryTextBrush}" FontSize="11"
-                       TextWrapping="Wrap" Margin="2,8,0,0"
-                       ><Run Text="This is how long a "/><Run Language="en-gb" Text="sound v silence "/><Run Text="change has to hold steady"/><Run Language="en-gb" Text=" to be recognised"/><Run Text=". Higher "/><Run Language="en-gb" Text="is more reliable but"/><Run Text=" slower"/><Run Language="en-gb" Text=" to react"/><Run Text="; lower reacts faster "/><Run Language="en-gb" Text="but more susceptible to false hits"/><Run Text=". Default 200ms."/></TextBlock>
-
-            <TextBlock Text="Updates" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" Margin="2,20,0,6"/>
-            <StackPanel Orientation="Horizontal">
-                <ToggleButton Style="{StaticResource ToggleSwitchStyle}"
-                              IsChecked="{Binding AutomaticallyCheckForUpdates, Mode=TwoWay}"/>
-                <TextBlock Text="Automatically check for updates on startup" VerticalAlignment="Center"
-                           Margin="10,0,0,0" Foreground="{StaticResource PrimaryTextBrush}" TextWrapping="Wrap"/>
-            </StackPanel>
-
-            <Button Content="Done" Click="CloseButton_Click" HorizontalAlignment="Right" Margin="0,20,0,0"
-                    Padding="18,8" Background="{StaticResource AccentBrush}" Foreground="White" BorderThickness="0"
-                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
-                    Cursor="Hand"/>
-        </StackPanel>
+        </ScrollViewer>
     </Grid>
 </Window>

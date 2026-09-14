@@ -1,6 +1,10 @@
+using System.Linq;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using AutoShazam.Models;
 using AutoShazam.Services.Settings;
 using AutoShazam.ViewModels;
 
@@ -168,4 +172,55 @@ public partial class MainWindow : Window
         => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
 
     private void CloseButton_Click(object sender, RoutedEventArgs e) => Close();
+
+    // Left-click a source icon to select it; right-click to pick a specific device from the
+    // (filtered) list offered for that kind - see AudioDeviceItem.IsOffered / Settings.
+
+    private void MicIconHost_MouseLeftButtonUp(object sender, MouseButtonEventArgs e) => _viewModel.SelectMicrophoneCommand.Execute(null);
+
+    private void SpeakerIconHost_MouseLeftButtonUp(object sender, MouseButtonEventArgs e) => _viewModel.SelectSpeakerCommand.Execute(null);
+
+    private void MicIconHost_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        var selectedId = _viewModel.SelectedMicrophoneDevice?.Id;
+        MicDeviceList.ItemsSource = _viewModel.GetOfferedDevices(AudioSourceKind.Microphone)
+            .Select(d => new DevicePickerRow(d, d.Id == selectedId))
+            .ToList();
+        MicDevicePopup.IsOpen = true;
+        e.Handled = true;
+    }
+
+    private void SpeakerIconHost_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        var selectedId = _viewModel.SelectedSpeakerDevice?.Id;
+        SpeakerDeviceList.ItemsSource = _viewModel.GetOfferedDevices(AudioSourceKind.Speaker)
+            .Select(d => new DevicePickerRow(d, d.Id == selectedId))
+            .ToList();
+        SpeakerDevicePopup.IsOpen = true;
+        e.Handled = true;
+    }
+
+    private void MicDeviceItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: AudioDeviceItem device })
+        {
+            _viewModel.PickMicrophoneDevice(device);
+        }
+
+        MicDevicePopup.IsOpen = false;
+    }
+
+    private void SpeakerDeviceItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: AudioDeviceItem device })
+        {
+            _viewModel.PickSpeakerDevice(device);
+        }
+
+        SpeakerDevicePopup.IsOpen = false;
+    }
+
+    /// <summary>One row in the right-click device popup - just enough to show a checkmark beside
+    /// whichever device is currently selected for that icon's source.</summary>
+    private sealed record DevicePickerRow(AudioDeviceItem Device, bool IsSelected);
 }

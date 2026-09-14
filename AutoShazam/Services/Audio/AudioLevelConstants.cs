@@ -3,10 +3,9 @@ namespace AutoShazam.Services.Audio;
 /// <summary>Shared reference points for interpreting dBFS level readings across the app.</summary>
 internal static class AudioLevelConstants
 {
-    /// <summary>Below this, <see cref="SilenceGapDetector"/> considers the signal silent. Now
-    /// configurable in Settings (see <see cref="AutoShazam.Models.AppSettings.SilenceThresholdDbFs"/>) -
-    /// this is just the default for a fresh install.</summary>
-    public const double SilenceThresholdDbFs = -45;
+    /// <summary>Floor for the loudness glow scale on the level icon - at/below this, it shows no
+    /// glow at all. Purely cosmetic (there's no silence-detection logic left to configure).</summary>
+    public const double GlowFloorDbFs = -50;
 
     /// <summary>
     /// A "sensible maximum" for level meter purposes - reaching this is already quite loud.

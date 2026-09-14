@@ -26,17 +26,18 @@
             <converters:DbFsToPurpleBrushConverter x:Key="DbFsToPurpleBrush"/>
             <SolidColorBrush x:Key="MicActiveBrush" Color="#3DDC5A"/>
 
-            <!-- Toolbar microphone indicator: glows green while the mic is actually capturing -->
+            <!-- Toolbar microphone toggle: green whenever it's the selected source, regardless of
+                 whether the device is actually capturing right now. Click to select it, right-click
+                 to pick a specific device. -->
             <Style x:Key="MicIconStyle" TargetType="TextBlock">
                 <Setter Property="Foreground" Value="{StaticResource SecondaryTextBrush}"/>
                 <Setter Property="FontSize" Value="15"/>
                 <Setter Property="VerticalAlignment" Value="Center"/>
                 <Setter Property="Effect" Value="{x:Null}"/>
-                <Setter Property="ToolTip" Value="Microphone not active"/>
+                <Setter Property="ToolTip" Value="Microphone - click to use, right-click to choose a device"/>
                 <Style.Triggers>
-                    <DataTrigger Binding="{Binding IsMicrophoneActive}" Value="True">
+                    <DataTrigger Binding="{Binding IsMicrophoneSelected}" Value="True">
                         <Setter Property="Foreground" Value="{StaticResource MicActiveBrush}"/>
-                        <Setter Property="ToolTip" Value="Microphone active"/>
                         <Setter Property="Effect">
                             <Setter.Value>
                                 <DropShadowEffect Color="#3DDC5A" BlurRadius="14" ShadowDepth="0" Opacity="0.95"/>
@@ -46,19 +47,32 @@
                 </Style.Triggers>
             </Style>
 
-            <!-- Toolbar sound-level indicator: purple intensity rises with mic input level -->
+            <!-- Toolbar speaker toggle: same idea as MicIconStyle, for capturing speaker output
+                 (loopback) instead of the microphone. -->
+            <Style x:Key="SpeakerIconStyle" TargetType="TextBlock">
+                <Setter Property="Foreground" Value="{StaticResource SecondaryTextBrush}"/>
+                <Setter Property="FontSize" Value="15"/>
+                <Setter Property="VerticalAlignment" Value="Center"/>
+                <Setter Property="Effect" Value="{x:Null}"/>
+                <Setter Property="ToolTip" Value="Speaker output - click to use, right-click to choose a device"/>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsSpeakerSelected}" Value="True">
+                        <Setter Property="Foreground" Value="{StaticResource MicActiveBrush}"/>
+                        <Setter Property="Effect">
+                            <Setter.Value>
+                                <DropShadowEffect Color="#3DDC5A" BlurRadius="14" ShadowDepth="0" Opacity="0.95"/>
+                            </Setter.Value>
+                        </Setter>
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <!-- Toolbar sound-level indicator: purple intensity rises with input level -->
             <Style x:Key="SoundLevelIconStyle" TargetType="TextBlock">
                 <Setter Property="FontSize" Value="15"/>
                 <Setter Property="VerticalAlignment" Value="Center"/>
                 <Setter Property="ToolTip" Value="{Binding SoundLevelTooltip}"/>
-                <Setter Property="Foreground">
-                    <Setter.Value>
-                        <MultiBinding Converter="{StaticResource DbFsToPurpleBrush}">
-                            <Binding Path="CurrentDbFs"/>
-                            <Binding Path="SilenceThresholdDbFs"/>
-                        </MultiBinding>
-                    </Setter.Value>
-                </Setter>
+                <Setter Property="Foreground" Value="{Binding CurrentDbFs, Converter={StaticResource DbFsToPurpleBrush}}"/>
             </Style>
 
             <!-- Toolbar lightning bolt: glows Shazam blue while a request to Shazam is in flight -->
@@ -171,6 +185,32 @@
                                 </Trigger>
                                 <Trigger Property="IsEnabled" Value="False">
                                     <Setter TargetName="Bg" Property="Background" Value="#4A4D59"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- Right-click device picker rows (mic/speaker popups) -->
+            <Style x:Key="DevicePickerItemStyle" TargetType="Button">
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="Foreground" Value="{StaticResource PrimaryTextBrush}"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Padding" Value="10,7"/>
+                <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                <Setter Property="HorizontalAlignment" Value="Stretch"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="Bg" Background="{TemplateBinding Background}" CornerRadius="4"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Bg" Property="Background" Value="{StaticResource AccentBrush}"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>

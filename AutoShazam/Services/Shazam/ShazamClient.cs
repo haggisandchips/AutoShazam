@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
 using AutoShazam.Services.Diagnostics;
@@ -16,6 +17,14 @@ internal sealed class ShazamMatchResult
 }
 
 /// <summary>
+/// Result of one recognition call. <see cref="RateLimitedRetryAfter"/> is set whenever the
+/// response signalled we're querying too fast - either an explicit 429, or (defensively, since
+/// this is an undocumented endpoint) a Retry-After/rate-limit-remaining header on any response -
+/// so the caller can back off even on an otherwise-successful call.
+/// </summary>
+internal sealed record ShazamRecognizeOutcome(ShazamMatchResult? Match, TimeSpan? RateLimitedRetryAfter);
+
+/// <summary>
 /// Minimal client for Shazam's (undocumented) mobile-app recognition endpoint. Builds a binary
 /// audio signature from raw PCM samples via <see cref="SignatureGenerator"/> and posts it the
 /// same way Shazam's own iPhone app does.
@@ -25,6 +34,7 @@ internal sealed class ShazamClient : IDisposable
     private const string Lang = "en";
     private const string Region = "US";
     private const double MaxSignatureSeconds = 8;
+    private static readonly TimeSpan DefaultRateLimitBackoff = TimeSpan.FromSeconds(30);
 
     private readonly HttpClient _http;
     private readonly RecognitionLog _log;
@@ -43,7 +53,7 @@ internal sealed class ShazamClient : IDisposable
         _http.DefaultRequestHeaders.UserAgent.ParseAdd("Shazam/3685 CFNetwork/1197 Darwin/20.0.0");
     }
 
-    public async Task<ShazamMatchResult?> RecognizeAsync(short[] pcm16kHzMonoSamples, CancellationToken cancellationToken)
+    public async Task<ShazamRecognizeOutcome> RecognizeAsync(short[] pcm16kHzMonoSamples, CancellationToken cancellationToken)
     {
         var generator = new SignatureGenerator { MaxTimeSeconds = MaxSignatureSeconds };
         generator.FeedInput(pcm16kHzMonoSamples);
@@ -51,7 +61,7 @@ internal sealed class ShazamClient : IDisposable
         if (signature is null || signature.NumberSamples == 0)
         {
             _log.Write($"Recognize: captured {pcm16kHzMonoSamples.Length} raw samples but produced no signature - nothing sent to Shazam.");
-            return null;
+            return new ShazamRecognizeOutcome(null, null);
         }
 
         int totalPeaks = signature.FrequencyBandToSoundPeaks.Values.Sum(peaks => peaks.Count);
@@ -79,6 +89,15 @@ internal sealed class ShazamClient : IDisposable
         };
 
         using var response = await _http.PostAsJsonAsync(url, payload, cancellationToken).ConfigureAwait(false);
+
+        var rateLimit = TryGetRateLimitRetryAfter(response);
+        if (response.StatusCode == HttpStatusCode.TooManyRequests)
+        {
+            var retryAfter = rateLimit ?? DefaultRateLimitBackoff;
+            _log.Write($"Recognize: rate limited by Shazam (429) - backing off {retryAfter.TotalSeconds:F0}s.");
+            return new ShazamRecognizeOutcome(null, retryAfter);
+        }
+
         response.EnsureSuccessStatusCode();
 
         var result = await response.Content
@@ -88,20 +107,60 @@ internal sealed class ShazamClient : IDisposable
         if (result?.Track is null)
         {
             _log.Write($"Recognize: Shazam returned no track (matches={result?.Matches?.Count ?? 0}).");
-            return null;
+            return new ShazamRecognizeOutcome(null, rateLimit);
         }
 
         _log.Write($"Recognize: matched '{result.Track.Title}' by '{result.Track.Subtitle}'.");
 
         var coverArt = result.Track.Images?.CoverArtHq ?? result.Track.Images?.CoverArt;
 
-        return new ShazamMatchResult
+        var match = new ShazamMatchResult
         {
             Title = result.Track.Title ?? "Unknown title",
             Artist = result.Track.Subtitle ?? "Unknown artist",
             CoverArtUrl = coverArt,
             OffsetSeconds = result.Matches?.FirstOrDefault()?.Offset ?? 0,
         };
+
+        return new ShazamRecognizeOutcome(match, rateLimit);
+    }
+
+    /// <summary>
+    /// Looks for a reason to back off even on a response that isn't a hard 429 - a Retry-After
+    /// header, or a generic X-RateLimit-Remaining-style header reporting we're out of budget.
+    /// Shazam's endpoint is undocumented and unofficial, so this is defensive: honor whatever
+    /// signal it happens to send rather than assuming only 429 ever means "slow down."
+    /// </summary>
+    private static TimeSpan? TryGetRateLimitRetryAfter(HttpResponseMessage response)
+    {
+        if (response.Headers.RetryAfter is { } retryAfter)
+        {
+            if (retryAfter.Delta is { } delta)
+            {
+                return delta;
+            }
+
+            if (retryAfter.Date is { } date)
+            {
+                var span = date - DateTimeOffset.UtcNow;
+                if (span > TimeSpan.Zero)
+                {
+                    return span;
+                }
+            }
+        }
+
+        foreach (var header in response.Headers)
+        {
+            if (header.Key.Contains("RateLimit-Remaining", StringComparison.OrdinalIgnoreCase)
+                && int.TryParse(header.Value.FirstOrDefault(), out int remaining)
+                && remaining <= 0)
+            {
+                return DefaultRateLimitBackoff;
+            }
+        }
+
+        return null;
     }
 
     private static string GetIanaTimeZoneId()

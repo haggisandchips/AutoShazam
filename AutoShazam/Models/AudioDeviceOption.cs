@@ -1,3 +1,3 @@
 namespace AutoShazam.Models;
 
-public sealed record AudioDeviceOption(string Id, string Name);
+public sealed record AudioDeviceOption(string Id, string Name, AudioSourceKind Kind);

@@ -35,10 +35,26 @@ public partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>True for a genuine Velopack install (the shipped release build), false for a local/dev run.</summary>
     public bool IsInstalled => _updateService.IsInstalled;
 
-    public ObservableCollection<AudioDeviceOption> Microphones { get; } = new();
+    /// <summary>Every known microphone, for the Settings "offered" checklist and the right-click
+    /// picker on the microphone icon.</summary>
+    public ObservableCollection<AudioDeviceItem> Microphones { get; } = new();
+
+    /// <summary>Every known speaker/render device, for the Settings "offered" checklist and the
+    /// right-click picker on the speaker icon.</summary>
+    public ObservableCollection<AudioDeviceItem> Speakers { get; } = new();
 
     [ObservableProperty]
-    private AudioDeviceOption? selectedMicrophone;
+    private AudioDeviceItem? selectedMicrophoneDevice;
+
+    [ObservableProperty]
+    private AudioDeviceItem? selectedSpeakerDevice;
+
+    [ObservableProperty]
+    private AudioSourceKind activeSource;
+
+    public bool IsMicrophoneSelected => ActiveSource == AudioSourceKind.Microphone;
+
+    public bool IsSpeakerSelected => ActiveSource == AudioSourceKind.Speaker;
 
     // Always starts false - Auto Shazam must default to off on every application start.
     [ObservableProperty]
@@ -47,8 +63,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool isBusy;
 
+    // Blank by default: Auto Shazam starts off and nothing is in flight, so there's nothing to say.
     [ObservableProperty]
-    private string statusText = "Ready.";
+    private string statusText = string.Empty;
 
     [ObservableProperty]
     private string? resultTitle;
@@ -81,36 +98,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public bool ShowPlainLyrics => HasLyrics && !HasSyncedLyrics;
 
     [ObservableProperty]
-    private bool isMicrophoneActive;
-
-    [ObservableProperty]
     private bool isQueryingShazam;
 
     [ObservableProperty]
-    private double currentDbFs = AudioLevelConstants.SilenceThresholdDbFs;
+    private double currentDbFs = AudioLevelConstants.GlowFloorDbFs;
 
     [ObservableProperty]
-    private bool isSoundDetected;
-
-    [ObservableProperty]
-    private string soundLevelTooltip = "No sound detected";
-
-    private DateTime? _silenceStartUtc;
-
-    // The raw dBFS reading flickers back and forth across the threshold for genuinely quiet
-    // sounds, which made the tooltip bounce between "Sound detected"/"No sound detected" on every
-    // sample. Only commit a state change once the raw reading has held steady for this long.
-    private bool _rawSoundDetected;
-    private DateTime _rawSoundStateChangedUtc = DateTime.MinValue;
-
-    [ObservableProperty]
-    private double extendedSilenceTimeoutSeconds;
-
-    [ObservableProperty]
-    private double silenceThresholdDbFs;
-
-    [ObservableProperty]
-    private double soundStateDebounceMs;
+    private string soundLevelTooltip = "Input level";
 
     [ObservableProperty]
     private bool automaticallyCheckForUpdates;
@@ -122,27 +116,53 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _settingsService = settingsService;
         _coordinator = new RecognitionCoordinator(appDataRoot);
 
-        foreach (var device in _deviceService.GetCaptureDevices())
+        var microphoneOptions = _deviceService.GetCaptureDevices();
+        var speakerOptions = _deviceService.GetRenderDevices();
+
+        // Seed "offered" with every device found on first run (or whenever nothing has been
+        // curated yet) rather than leaving the set empty. GetOfferedDevices/CreateDeviceItem
+        // treat an empty set as "offer everything" for display purposes, but that convention
+        // breaks the moment the user unchecks a single device: removing an id that was never
+        // actually in the set is a no-op, so the uncheck silently fails to persist. Seeding here
+        // makes every subsequent check/uncheck a normal, unambiguous set membership change.
+        if (Settings.OfferedDeviceIds.Count == 0)
         {
-            Microphones.Add(device);
+            foreach (var option in microphoneOptions.Concat(speakerOptions))
+            {
+                Settings.OfferedDeviceIds.Add(option.Id);
+            }
+
+            _settingsService.Save(Settings);
         }
 
-        selectedMicrophone = Microphones.FirstOrDefault(d => d.Id == settings.SelectedMicrophoneDeviceId)
+        foreach (var device in microphoneOptions)
+        {
+            Microphones.Add(CreateDeviceItem(device));
+        }
+
+        foreach (var device in speakerOptions)
+        {
+            Speakers.Add(CreateDeviceItem(device));
+        }
+
+        selectedMicrophoneDevice = Microphones.FirstOrDefault(d => d.Id == settings.SelectedMicrophoneDeviceId)
             ?? Microphones.FirstOrDefault();
+        selectedSpeakerDevice = Speakers.FirstOrDefault(d => d.Id == settings.SelectedSpeakerDeviceId)
+            ?? Speakers.FirstOrDefault();
 
-        if (selectedMicrophone is not null)
+        // The two lines above bypass the generated property setters (direct field assignment, so
+        // OnSelected*DeviceChanged never runs) - if that left a freshly-picked default that isn't
+        // what's on disk yet (typically: nothing was ever explicitly selected before), persist it
+        // now rather than leaving Settings pointing at a device that's only an implicit fallback.
+        if (Settings.SelectedMicrophoneDeviceId != selectedMicrophoneDevice?.Id
+            || Settings.SelectedSpeakerDeviceId != selectedSpeakerDevice?.Id)
         {
-            _coordinator.SetDevice(selectedMicrophone.Id);
+            Settings.SelectedMicrophoneDeviceId = selectedMicrophoneDevice?.Id;
+            Settings.SelectedSpeakerDeviceId = selectedSpeakerDevice?.Id;
+            _settingsService.Save(Settings);
         }
 
-        extendedSilenceTimeoutSeconds = settings.ExtendedSilenceTimeoutSeconds;
-        _coordinator.SetExtendedSilenceTimeout(TimeSpan.FromSeconds(Math.Max(1, extendedSilenceTimeoutSeconds)));
-
-        silenceThresholdDbFs = settings.SilenceThresholdDbFs;
-        _coordinator.SetSilenceThreshold(silenceThresholdDbFs);
-        currentDbFs = silenceThresholdDbFs; // keep the level icon's idle state consistent with the configured threshold
-
-        soundStateDebounceMs = settings.SoundStateDebounceMs;
+        activeSource = settings.ActiveAudioSource;
 
         automaticallyCheckForUpdates = settings.AutomaticallyCheckForUpdates;
 
@@ -154,17 +174,17 @@ public partial class MainViewModel : ObservableObject, IDisposable
             StatusText = "Listening...";
 
             // The last identified track stays on screen - it's only ever replaced by a new
-            // match (RecognitionSucceeded below), never cleared just because listening started.
+            // match (RecognitionSucceeded below), never cleared just because a check started.
         });
 
         _coordinator.RecognitionSucceeded += (_, result) => RunOnUi(() =>
         {
             IsBusy = false;
 
-            // Auto Shazam periodically re-confirms whatever's still playing. Treat that as a no-op
-            // for lyrics/sync rather than the same track it already had: resetting the sync clock
-            // would jump the highlighted line, and reloading would flash-rebuild the lyrics list,
-            // even though nothing actually changed.
+            // Recognition runs periodically and re-confirms whatever's still playing. Treat that
+            // as a no-op for lyrics/sync rather than the same track it already had: resetting the
+            // sync clock would jump the highlighted line, and reloading would flash-rebuild the
+            // lyrics list, even though nothing actually changed.
             bool isNewTrack = !string.Equals(ResultArtist, result.Artist, StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(ResultTitle, result.Title, StringComparison.OrdinalIgnoreCase);
 
@@ -195,42 +215,128 @@ public partial class MainViewModel : ObservableObject, IDisposable
             StatusText = $"Recognition failed: {error}";
         });
 
-        // No status message here - this fires alongside AutoDisabledBySilence/AutoStoppedUnexpectedly,
-        // which already set a more useful message; this just clears the busy flag those don't touch.
-        _coordinator.RecognitionCancelled += (_, _) => RunOnUi(() => IsBusy = false);
-
-        _coordinator.MicrophoneActiveChanged += (_, active) => RunOnUi(() =>
+        _coordinator.RecognitionCancelled += (_, _) => RunOnUi(() =>
         {
-            IsMicrophoneActive = active;
+            IsBusy = false;
+            UpdateRestingStatusText();
+        });
+
+        _coordinator.SourceActiveChanged += (_, active) => RunOnUi(() =>
+        {
             if (!active)
             {
-                CurrentDbFs = SilenceThresholdDbFs; // nothing to meter - show uncoloured
-                _silenceStartUtc = null;
-                SoundLevelTooltip = "No sound detected";
+                CurrentDbFs = AudioLevelConstants.GlowFloorDbFs; // nothing to meter - show uncoloured
             }
         });
 
         _coordinator.LevelChanged += (_, dbFs) => RunOnUi(() => CurrentDbFs = dbFs);
-        _coordinator.ShazamQueryActiveChanged += (_, active) => RunOnUi(() => IsQueryingShazam = active);
 
-        _coordinator.AutoDisabledBySilence += (_, _) => RunOnUi(() =>
+        _coordinator.ShazamQueryActiveChanged += (_, active) => RunOnUi(() =>
         {
-            IsAutoShazamEnabled = false; // triggers OnIsAutoShazamEnabledChanged, which stops capture
-            StatusText = $"Auto Shazam turned off after {FormatTimeout(ExtendedSilenceTimeoutSeconds)} of silence.";
+            IsQueryingShazam = active;
+            if (active)
+            {
+                StatusText = "Shazaming";
+            }
         });
+
+        // Fires every second while Auto Shazam is on and nothing is in flight - settles the
+        // status line on "Idle" rather than leaving the previous outcome message shown until
+        // the next check, potentially a long wait away.
+        _coordinator.Idle += (_, _) => RunOnUi(UpdateRestingStatusText);
 
         _coordinator.AutoStoppedUnexpectedly += (_, error) => RunOnUi(() =>
         {
             IsAutoShazamEnabled = false;
             StatusText = $"Auto Shazam stopped: {error}";
         });
+
+        _coordinator.SetSource(ActiveSource, CurrentDeviceId());
     }
 
-    partial void OnSelectedMicrophoneChanged(AudioDeviceOption? value)
+    private AudioDeviceItem CreateDeviceItem(AudioDeviceOption option)
+    {
+        var item = new AudioDeviceItem(option, Settings.OfferedDeviceIds.Contains(option.Id));
+        item.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName != nameof(AudioDeviceItem.IsOffered))
+            {
+                return;
+            }
+
+            if (item.IsOffered)
+            {
+                Settings.OfferedDeviceIds.Add(item.Id);
+            }
+            else
+            {
+                Settings.OfferedDeviceIds.Remove(item.Id);
+            }
+
+            _settingsService.Save(Settings);
+        };
+        return item;
+    }
+
+    private string? CurrentDeviceId()
+        => ActiveSource == AudioSourceKind.Microphone ? SelectedMicrophoneDevice?.Id : SelectedSpeakerDevice?.Id;
+
+    /// <summary>Devices to show in the right-click picker for <paramref name="kind"/> - only the
+    /// ones marked "offered" in Settings, or every device of that kind if none have been curated.</summary>
+    public IReadOnlyList<AudioDeviceItem> GetOfferedDevices(AudioSourceKind kind)
+    {
+        var source = kind == AudioSourceKind.Microphone ? Microphones : Speakers;
+        var offered = source.Where(d => d.IsOffered).ToList();
+        return offered.Count > 0 ? offered : source.ToList();
+    }
+
+    [RelayCommand]
+    private void SelectMicrophone() => ActiveSource = AudioSourceKind.Microphone;
+
+    [RelayCommand]
+    private void SelectSpeaker() => ActiveSource = AudioSourceKind.Speaker;
+
+    /// <summary>Called from the right-click picker - picking a device also switches to its source,
+    /// since choosing one implies you want to use it now.</summary>
+    public void PickMicrophoneDevice(AudioDeviceItem device)
+    {
+        SelectedMicrophoneDevice = device;
+        ActiveSource = AudioSourceKind.Microphone;
+    }
+
+    public void PickSpeakerDevice(AudioDeviceItem device)
+    {
+        SelectedSpeakerDevice = device;
+        ActiveSource = AudioSourceKind.Speaker;
+    }
+
+    partial void OnSelectedMicrophoneDeviceChanged(AudioDeviceItem? value)
     {
         Settings.SelectedMicrophoneDeviceId = value?.Id;
         _settingsService.Save(Settings);
-        _coordinator.SetDevice(value?.Id);
+        if (ActiveSource == AudioSourceKind.Microphone)
+        {
+            _coordinator.SetSource(AudioSourceKind.Microphone, value?.Id);
+        }
+    }
+
+    partial void OnSelectedSpeakerDeviceChanged(AudioDeviceItem? value)
+    {
+        Settings.SelectedSpeakerDeviceId = value?.Id;
+        _settingsService.Save(Settings);
+        if (ActiveSource == AudioSourceKind.Speaker)
+        {
+            _coordinator.SetSource(AudioSourceKind.Speaker, value?.Id);
+        }
+    }
+
+    partial void OnActiveSourceChanged(AudioSourceKind value)
+    {
+        Settings.ActiveAudioSource = value;
+        _settingsService.Save(Settings);
+        _coordinator.SetSource(value, CurrentDeviceId());
+        OnPropertyChanged(nameof(IsMicrophoneSelected));
+        OnPropertyChanged(nameof(IsSpeakerSelected));
     }
 
     partial void OnIsAutoShazamEnabledChanged(bool value)
@@ -240,7 +346,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
             try
             {
                 _coordinator.SetAutoEnabled(true);
-                StatusText = "Auto Shazam is on — listening for track changes.";
             }
             catch (Exception ex)
             {
@@ -248,14 +353,19 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 isAutoShazamEnabled = false;
                 OnPropertyChanged(nameof(IsAutoShazamEnabled));
                 StatusText = $"Couldn't start Auto Shazam: {ex.Message}";
+                ShazamCommand.NotifyCanExecuteChanged();
+                return;
             }
         }
         else
         {
             _coordinator.SetAutoEnabled(false);
-            StatusText = "Auto Shazam is off.";
         }
 
+        // The initial check (when turning on) may already have set a more specific status
+        // ("Listening...") synchronously above - this only fills in when nothing more specific
+        // is already showing.
+        UpdateRestingStatusText();
         ShazamCommand.NotifyCanExecuteChanged(); // the manual button is disabled while auto mode is on
     }
 
@@ -264,66 +374,17 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ShazamCommand.NotifyCanExecuteChanged();
     }
 
-    partial void OnHasLyricsChanged(bool value) => OnPropertyChanged(nameof(ShowPlainLyrics));
-
-    partial void OnHasSyncedLyricsChanged(bool value) => OnPropertyChanged(nameof(ShowPlainLyrics));
-
-    partial void OnCurrentDbFsChanged(double value)
+    /// <summary>The status line's fallback text for whenever nothing more specific (Listening.../
+    /// Shazaming, or a just-finished outcome message) applies: "Idle" while Auto Shazam is on and
+    /// waiting for its next check, blank otherwise.</summary>
+    private void UpdateRestingStatusText()
     {
-        bool raw = value > SilenceThresholdDbFs;
-        var now = DateTime.UtcNow;
-        if (raw != _rawSoundDetected)
+        if (IsBusy)
         {
-            _rawSoundDetected = raw;
-            _rawSoundStateChangedUtc = now;
-        }
-
-        bool settled = now - _rawSoundStateChangedUtc >= TimeSpan.FromMilliseconds(Math.Max(0, SoundStateDebounceMs));
-        if (settled)
-        {
-            IsSoundDetected = _rawSoundDetected;
-        }
-
-        if (IsSoundDetected)
-        {
-            _silenceStartUtc = null;
-            SoundLevelTooltip = "Sound detected";
             return;
         }
 
-        _silenceStartUtc ??= DateTime.UtcNow;
-        int elapsed = (int)(DateTime.UtcNow - _silenceStartUtc.Value).TotalSeconds;
-        SoundLevelTooltip = elapsed > 0 ? $"No sound detected ({elapsed}s)" : "No sound detected";
-    }
-
-    partial void OnExtendedSilenceTimeoutSecondsChanged(double value)
-    {
-        Settings.ExtendedSilenceTimeoutSeconds = value;
-        _settingsService.Save(Settings);
-        _coordinator.SetExtendedSilenceTimeout(TimeSpan.FromSeconds(Math.Max(1, value)));
-    }
-
-    partial void OnSilenceThresholdDbFsChanged(double value)
-    {
-        Settings.SilenceThresholdDbFs = value;
-        _settingsService.Save(Settings);
-        _coordinator.SetSilenceThreshold(value);
-
-        // Re-evaluate against the new threshold immediately rather than waiting for the next
-        // audio callback, so the level icon/tooltip reflect the change right away.
-        OnCurrentDbFsChanged(CurrentDbFs);
-    }
-
-    partial void OnSoundStateDebounceMsChanged(double value)
-    {
-        Settings.SoundStateDebounceMs = value;
-        _settingsService.Save(Settings);
-    }
-
-    partial void OnAutomaticallyCheckForUpdatesChanged(bool value)
-    {
-        Settings.AutomaticallyCheckForUpdates = value;
-        _settingsService.Save(Settings);
+        StatusText = IsAutoShazamEnabled ? "Idle" : string.Empty;
     }
 
     [RelayCommand(CanExecute = nameof(CanTriggerManual))]
@@ -331,8 +392,37 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private bool CanTriggerManual() => !IsBusy && !IsAutoShazamEnabled;
 
-    private static string FormatTimeout(double seconds)
-        => seconds == 1 ? "1 second" : $"{seconds:0.#} seconds";
+    [RelayCommand]
+    private void ClearResult()
+    {
+        HasResult = false;
+        ResultTitle = null;
+        ResultArtist = null;
+        CoverArtUrl = null;
+
+        _syncedLines = null;
+        SyncedLyricLines.Clear();
+        CurrentLyricLineIndex = -1;
+        HasSyncedLyrics = false;
+        LyricsText = null;
+        HasLyrics = false;
+        _lyricsSyncTimer.Stop();
+        _lyricsRequestVersion++; // invalidate any in-flight lyrics fetch for the track being cleared
+
+        _lyricsWindow?.Close(); // its Closed handler clears _lyricsWindow and stops the sync timer
+    }
+
+    partial void OnHasLyricsChanged(bool value) => OnPropertyChanged(nameof(ShowPlainLyrics));
+
+    partial void OnHasSyncedLyricsChanged(bool value) => OnPropertyChanged(nameof(ShowPlainLyrics));
+
+    partial void OnCurrentDbFsChanged(double value) => SoundLevelTooltip = $"{value:F0} dBFS";
+
+    partial void OnAutomaticallyCheckForUpdatesChanged(bool value)
+    {
+        Settings.AutomaticallyCheckForUpdates = value;
+        _settingsService.Save(Settings);
+    }
 
     // Guards against a slower lookup for an earlier match overwriting a newer one that resolved
     // first (or resolved not-found) - only the most recent request's result is ever applied.
@@ -516,11 +606,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
         else
         {
-            // BeginInvoke (not Invoke): events like ExtendedSilenceDetected are raised from the
-            // microphone's own capture callback thread, and the handler here can end up calling
-            // back into MicrophoneCaptureService.StopContinuous(), which needs that same capture
-            // thread to exit. A blocking Invoke would deadlock (UI thread waiting on the capture
-            // thread to stop; capture thread waiting inside Invoke for the UI thread to finish).
+            // BeginInvoke (not Invoke): some coordinator events are raised from the capture
+            // callback thread, and the handler here can end up calling back into
+            // AudioCaptureService, which needs that same capture thread to exit. A blocking
+            // Invoke would deadlock (UI thread waiting on the capture thread to stop; capture
+            // thread waiting inside Invoke for the UI thread to finish).
             dispatcher.BeginInvoke(action);
         }
     }

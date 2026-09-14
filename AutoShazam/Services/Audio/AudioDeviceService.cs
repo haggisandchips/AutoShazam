@@ -10,30 +10,26 @@ internal sealed class AudioDeviceService
     {
         using var enumerator = new MMDeviceEnumerator();
         return enumerator.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active)
-            .Select(d => new AudioDeviceOption(d.ID, d.FriendlyName))
+            .Select(d => new AudioDeviceOption(d.ID, d.FriendlyName, AudioSourceKind.Microphone))
             .ToList();
     }
 
-    public string? GetDefaultDeviceId()
+    public List<AudioDeviceOption> GetRenderDevices()
     {
         using var enumerator = new MMDeviceEnumerator();
-        try
-        {
-            return enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Console).ID;
-        }
-        catch (COMException)
-        {
-            return null;
-        }
+        return enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active)
+            .Select(d => new AudioDeviceOption(d.ID, d.FriendlyName, AudioSourceKind.Speaker))
+            .ToList();
     }
 
-    public MMDevice? GetDeviceById(string? id)
+    public MMDevice? GetDeviceById(string? id, AudioSourceKind kind)
     {
+        var flow = kind == AudioSourceKind.Speaker ? DataFlow.Render : DataFlow.Capture;
         using var enumerator = new MMDeviceEnumerator();
         try
         {
             return string.IsNullOrEmpty(id)
-                ? enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Console)
+                ? enumerator.GetDefaultAudioEndpoint(flow, Role.Console)
                 : enumerator.GetDevice(id);
         }
         catch (COMException)

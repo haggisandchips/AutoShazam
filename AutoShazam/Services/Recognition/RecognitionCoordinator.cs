@@ -6,71 +6,69 @@ using AutoShazam.Services.Shazam;
 namespace AutoShazam.Services.Recognition;
 
 /// <summary>
-/// Orchestrates recognition attempts (manual button clicks, silence-gap triggers, and a periodic
-/// fallback) through a single gate, so Shazam is never queried concurrently or in a tight loop:
+/// Orchestrates recognition attempts (manual button clicks and Auto Shazam's periodic checks)
+/// through a single gate, so Shazam is never queried concurrently or in a tight loop:
 /// - Only one recognition runs at a time.
-/// - Auto-triggered recognitions respect a cooldown so a run of short gaps - or the periodic
-///   fallback timer - can't fire off a burst of requests. The cooldown is shorter after a miss
-///   (worth trying again soon) than after a match (probably still the same track playing).
-/// - A silence-gap that arrives while a recognition is already running isn't dropped: it's
-///   remembered and immediately retried (bypassing the cooldown) once the current attempt
-///   finishes, since a gap is strong evidence the track actually changed.
-/// - A periodic timer provides a fallback trigger for sources with no clean silence between
-///   tracks (crossfaded/gapless streaming, DJ mixes, live albums) where silence-gap detection
-///   alone would never fire again after the first attempt.
+/// - While Auto Shazam is on, checks repeat on a self-paced interval: never more often than
+///   <see cref="MinQueryInterval"/>, normally at <see cref="DefaultQueryInterval"/>, and backed
+///   off (up to <see cref="MaxQueryInterval"/>) whenever a response signals we're going too fast -
+///   see <see cref="ShazamClient"/>'s header inspection - or a request fails outright, so a
+///   persistent problem doesn't turn into a tight retry loop.
 /// - A manual button click always attempts to run (subject only to the busy guard), and by
-///   construction always performs exactly one recognition.
+///   construction always performs exactly one recognition, using whatever source/device is
+///   currently selected regardless of whether Auto Shazam is on.
 /// </summary>
 internal sealed class RecognitionCoordinator : IDisposable
 {
     private static readonly TimeSpan RecognitionClipDuration = TimeSpan.FromSeconds(9);
-    private static readonly TimeSpan AutoCooldownAfterMatch = TimeSpan.FromSeconds(45);
-    private static readonly TimeSpan AutoCooldownAfterMiss = TimeSpan.FromSeconds(10);
-    private static readonly TimeSpan AutoRetryPollInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan MinQueryInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan DefaultQueryInterval = TimeSpan.FromSeconds(12);
+    private static readonly TimeSpan MaxQueryInterval = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan PollTickInterval = TimeSpan.FromSeconds(1);
 
-    private readonly MicrophoneCaptureService _microphone = new();
-    private readonly SilenceGapDetector _gapDetector = new();
+    private readonly AudioCaptureService _capture = new();
     private readonly RecognitionLog _log;
     private readonly ShazamClient _shazamClient;
 
     private readonly object _sync = new();
     private bool _busy;
-    private bool _pendingGapRetry;
-    private DateTime _lastRecognitionUtc = DateTime.MinValue;
-    private TimeSpan _currentAutoCooldown = AutoCooldownAfterMiss;
+    private DateTime _lastAttemptUtc = DateTime.MinValue;
+    private TimeSpan _currentInterval = DefaultQueryInterval;
     private bool _autoEnabled;
+    private AudioSourceKind _kind = AudioSourceKind.Microphone;
     private string? _deviceId;
-    private CancellationTokenSource? _autoSessionCts;
-    private Timer? _autoRetryTimer;
+    private Timer? _autoPollTimer;
 
     public event EventHandler? RecognitionStarted;
     public event EventHandler<RecognitionResult>? RecognitionSucceeded;
     public event EventHandler? RecognitionNoMatch;
     public event EventHandler<string>? RecognitionFailed;
 
-    /// <summary>Raised instead of any of the above when an in-flight attempt was cut short by the
-    /// microphone being torn down (e.g. auto mode turned off mid-recording) rather than actually
+    /// <summary>Raised instead of any of the above when an in-flight attempt was cut short by
+    /// capture being torn down (e.g. Auto Shazam turned off mid-recording) rather than actually
     /// completing. No message - just a signal that whoever set busy/listening state should clear it.</summary>
     public event EventHandler? RecognitionCancelled;
-    public event EventHandler<bool>? MicrophoneActiveChanged;
 
-    /// <summary>The current microphone level in dBFS, for level-meter UI. Only meaningful while
-    /// the microphone is active.</summary>
+    /// <summary>Raised whenever capture actually starts or stops (Auto Shazam, or a one-shot
+    /// manual recording).</summary>
+    public event EventHandler<bool>? SourceActiveChanged;
+
+    /// <summary>The current input level in dBFS, for the level-meter icon. Only meaningful while
+    /// the source is active.</summary>
     public event EventHandler<double>? LevelChanged;
 
     /// <summary>Raised immediately before/after the actual HTTP call to Shazam (a subset of a
     /// full recognition attempt, which also spends time recording audio first).</summary>
     public event EventHandler<bool>? ShazamQueryActiveChanged;
 
-    /// <summary>Raised when auto mode has been listening to nothing but silence for too long. The
-    /// caller (view model) is expected to actually turn Auto Shazam off in response, since that's
-    /// also what's bound to the title bar toggle.</summary>
-    public event EventHandler? AutoDisabledBySilence;
+    /// <summary>Raised on every poll tick while Auto Shazam is on and nothing is currently in
+    /// flight - a heartbeat the UI can use to settle on an "idle" status between checks.</summary>
+    public event EventHandler? Idle;
 
-    /// <summary>Raised when auto mode was already running and had to stop because the microphone
-    /// failed mid-session (e.g. the device was switched to one that's unavailable). Not raised for
-    /// the initial <see cref="SetAutoEnabled"/> failure - that one is thrown back to the caller
-    /// synchronously so the toggle never has to be told "actually, no" after the fact.</summary>
+    /// <summary>Raised when Auto Shazam was already running and had to stop because capture
+    /// failed mid-session (e.g. the source was switched to a device that's unavailable). Not
+    /// raised for the initial <see cref="SetAutoEnabled"/> failure - that one is thrown back to
+    /// the caller synchronously so the toggle never has to be told "actually, no" after the fact.</summary>
     public event EventHandler<string>? AutoStoppedUnexpectedly;
 
     public RecognitionCoordinator(string appDataRoot)
@@ -78,32 +76,21 @@ internal sealed class RecognitionCoordinator : IDisposable
         _log = new RecognitionLog(appDataRoot);
         _shazamClient = new ShazamClient(_log);
 
-        _gapDetector.GapEnded += (_, _) => _ = TryStartRecognitionAsync(auto: true, bypassCooldown: false);
-        _gapDetector.ExtendedSilenceDetected += (_, _) =>
-        {
-            if (_autoEnabled)
-            {
-                AutoDisabledBySilence?.Invoke(this, EventArgs.Empty);
-            }
-        };
-        _microphone.LevelSample += (_, e) =>
-        {
-            _gapDetector.OnLevelSample(e.DbFs, e.Duration);
-            LevelChanged?.Invoke(this, e.DbFs);
-        };
-        _microphone.ActiveChanged += (_, active) => MicrophoneActiveChanged?.Invoke(this, active);
+        _capture.LevelSample += (_, e) => LevelChanged?.Invoke(this, e.DbFs);
+        _capture.ActiveChanged += (_, active) => SourceActiveChanged?.Invoke(this, active);
     }
 
-    public void SetExtendedSilenceTimeout(TimeSpan timeout) => _gapDetector.ExtendedSilenceThreshold = timeout;
-
-    public void SetSilenceThreshold(double thresholdDbFs) => _gapDetector.SilenceThresholdDbFs = thresholdDbFs;
-
-    public void SetDevice(string? deviceId)
+    /// <summary>Configures which device to capture from. If Auto Shazam is currently running,
+    /// capture is restarted against the new source immediately.</summary>
+    public void SetSource(AudioSourceKind kind, string? deviceId)
     {
         lock (_sync)
         {
+            _kind = kind;
             _deviceId = deviceId;
         }
+
+        _capture.SetSource(kind, deviceId);
 
         if (!_autoEnabled)
         {
@@ -112,24 +99,21 @@ internal sealed class RecognitionCoordinator : IDisposable
 
         try
         {
-            _microphone.StopContinuous();
-            _microphone.StartContinuous(deviceId);
-            _gapDetector.Reset();
+            _capture.Restart();
         }
         catch (Exception ex)
         {
-            // The old device stopped and the new one didn't come up - don't leave auto mode
-            // silently "on" with a dead microphone.
+            // The old device stopped and the new one didn't come up - don't leave Auto Shazam
+            // silently "on" with a dead source.
             StopAutoState();
             AutoStoppedUnexpectedly?.Invoke(this, ex.Message);
         }
     }
 
     /// <summary>
-    /// Enables or disables auto mode. Enabling performs an immediate initial check and starts the
-    /// periodic fallback timer. If the microphone fails to start, auto mode is left off and the
-    /// exception propagates to the caller (rather than leaving auto mode looking "on" with nothing
-    /// running).
+    /// Enables or disables Auto Shazam. Enabling performs an immediate initial check and starts
+    /// the periodic polling loop. If capture fails to start, Auto Shazam is left off and the
+    /// exception propagates to the caller (rather than leaving it looking "on" with nothing running).
     /// </summary>
     public void SetAutoEnabled(bool enabled)
     {
@@ -140,19 +124,15 @@ internal sealed class RecognitionCoordinator : IDisposable
 
         if (enabled)
         {
-            _autoSessionCts = new CancellationTokenSource();
-            _gapDetector.Reset();
-            _microphone.StartContinuous(_deviceId); // throws on failure; _autoEnabled stays false
+            _capture.Start(); // throws on failure; _autoEnabled stays false
             _autoEnabled = true;
-            _currentAutoCooldown = AutoCooldownAfterMiss;
+            lock (_sync)
+            {
+                _currentInterval = DefaultQueryInterval;
+            }
 
-            _autoRetryTimer = new Timer(
-                _ => _ = TryStartRecognitionAsync(auto: true, bypassCooldown: false),
-                null,
-                AutoRetryPollInterval,
-                AutoRetryPollInterval);
-
-            _ = TryStartRecognitionAsync(auto: false, bypassCooldown: true); // initial check
+            _autoPollTimer = new Timer(_ => Tick(), null, PollTickInterval, PollTickInterval);
+            _ = TryRecognizeAsync(); // initial check
         }
         else
         {
@@ -163,122 +143,133 @@ internal sealed class RecognitionCoordinator : IDisposable
     private void StopAutoState()
     {
         _autoEnabled = false;
-        _pendingGapRetry = false;
-        _autoRetryTimer?.Dispose();
-        _autoRetryTimer = null;
-        _autoSessionCts?.Cancel();
-        _autoSessionCts?.Dispose();
-        _autoSessionCts = null;
-        _microphone.StopContinuous();
-        _gapDetector.Reset();
+        _autoPollTimer?.Dispose();
+        _autoPollTimer = null;
+        _capture.Stop();
     }
 
-    /// <summary>Manual one-shot recognition (works regardless of auto mode).</summary>
-    public Task TriggerManualAsync() => TryStartRecognitionAsync(auto: false, bypassCooldown: true);
+    /// <summary>Manual one-shot recognition (works regardless of Auto Shazam).</summary>
+    public Task TriggerManualAsync() => TryRecognizeAsync();
 
-    private async Task TryStartRecognitionAsync(bool auto, bool bypassCooldown)
+    private void Tick()
+    {
+        TimeSpan interval;
+        DateTime lastAttempt;
+        bool busy;
+        lock (_sync)
+        {
+            interval = _currentInterval;
+            lastAttempt = _lastAttemptUtc;
+            busy = _busy;
+        }
+
+        if (busy)
+        {
+            return;
+        }
+
+        // Fires every tick while Auto Shazam has nothing in flight - lets the UI settle on an
+        // "Idle" status rather than leaving the previous attempt's outcome message shown forever
+        // during the gap until the next check.
+        Idle?.Invoke(this, EventArgs.Empty);
+
+        if (DateTime.UtcNow - lastAttempt >= interval)
+        {
+            _ = TryRecognizeAsync();
+        }
+    }
+
+    private async Task TryRecognizeAsync()
     {
         lock (_sync)
         {
             if (_busy)
             {
-                if (auto)
-                {
-                    // A transition was detected (or the fallback timer fired) while we were
-                    // already mid-recognition. Don't lose that signal - retry the moment the
-                    // current attempt finishes, bypassing the cooldown, since this is good
-                    // evidence the track just changed.
-                    _pendingGapRetry = true;
-                }
-                return;
-            }
-
-            if (auto && !bypassCooldown && DateTime.UtcNow - _lastRecognitionUtc < _currentAutoCooldown)
-            {
                 return;
             }
 
             _busy = true;
-            _pendingGapRetry = false;
+            _lastAttemptUtc = DateTime.UtcNow;
         }
 
         RecognitionStarted?.Invoke(this, EventArgs.Empty);
-        _log.Write($"Attempt started (auto={auto}, bypassCooldown={bypassCooldown}).");
+        _log.Write("Attempt started.");
 
         try
         {
-            var deviceId = _deviceId;
             var recordingStartedUtc = DateTime.UtcNow;
-            var samples = await _microphone.RecordSnippetAsync(deviceId, RecognitionClipDuration, CancellationToken.None)
+            var samples = await _capture.RecordSnippetAsync(RecognitionClipDuration, CancellationToken.None)
                 .ConfigureAwait(false);
 
             ShazamQueryActiveChanged?.Invoke(this, true);
-            ShazamMatchResult? match;
+            ShazamRecognizeOutcome outcome;
             try
             {
-                match = await _shazamClient.RecognizeAsync(samples, CancellationToken.None).ConfigureAwait(false);
+                outcome = await _shazamClient.RecognizeAsync(samples, CancellationToken.None).ConfigureAwait(false);
             }
             finally
             {
                 ShazamQueryActiveChanged?.Invoke(this, false);
             }
 
-            if (match is null)
+            lock (_sync)
             {
-                _currentAutoCooldown = AutoCooldownAfterMiss;
+                _currentInterval = outcome.RateLimitedRetryAfter is { } retryAfter
+                    ? Clamp(Max(retryAfter, _currentInterval * 2), MinQueryInterval, MaxQueryInterval)
+                    : DefaultQueryInterval;
+            }
+
+            if (outcome.Match is null)
+            {
                 _log.Write("Attempt outcome: no match.");
                 RecognitionNoMatch?.Invoke(this, EventArgs.Empty);
             }
             else
             {
-                _currentAutoCooldown = AutoCooldownAfterMatch;
-                _log.Write($"Attempt outcome: matched '{match.Title}' by '{match.Artist}'.");
+                _log.Write($"Attempt outcome: matched '{outcome.Match.Title}' by '{outcome.Match.Artist}'.");
                 RecognitionSucceeded?.Invoke(
                     this,
-                    new RecognitionResult(match.Title, match.Artist, match.CoverArtUrl, match.OffsetSeconds, recordingStartedUtc));
+                    new RecognitionResult(outcome.Match.Title, outcome.Match.Artist, outcome.Match.CoverArtUrl, outcome.Match.OffsetSeconds, recordingStartedUtc));
             }
         }
-        catch (MicrophoneStoppedException)
+        catch (CaptureStoppedException)
         {
-            // The microphone was torn down mid-recording (e.g. auto mode was switched off while
-            // this attempt was in flight) - not a real failure, nothing to report. Deliberately
-            // NOT catching the broader OperationCanceledException here: HttpClient throws that
-            // same base type on its own request timeout, and a genuine network failure should be
+            // Capture was torn down mid-recording (e.g. Auto Shazam was switched off while this
+            // attempt was in flight) - not a real failure, nothing to report. Deliberately NOT
+            // catching the broader OperationCanceledException here: HttpClient throws that same
+            // base type on its own request timeout, and a genuine network failure should be
             // surfaced via RecognitionFailed below, not silently swallowed as routine teardown.
-            _currentAutoCooldown = AutoCooldownAfterMiss;
-            _log.Write("Attempt outcome: cancelled (microphone stopped mid-recording).");
+            _log.Write("Attempt outcome: cancelled (capture stopped mid-recording).");
             RecognitionCancelled?.Invoke(this, EventArgs.Empty);
         }
         catch (Exception ex)
         {
-            _currentAutoCooldown = AutoCooldownAfterMiss;
+            lock (_sync)
+            {
+                _currentInterval = Clamp(_currentInterval * 2, MinQueryInterval, MaxQueryInterval);
+            }
+
             _log.Write($"Attempt outcome: failed - {ex}");
             RecognitionFailed?.Invoke(this, ex.Message);
         }
         finally
         {
-            bool retryPending;
             lock (_sync)
             {
                 _busy = false;
-                _lastRecognitionUtc = DateTime.UtcNow;
-                retryPending = _pendingGapRetry;
-                _pendingGapRetry = false;
-            }
-
-            if (retryPending && _autoEnabled)
-            {
-                _ = TryStartRecognitionAsync(auto: true, bypassCooldown: true);
             }
         }
     }
 
+    private static TimeSpan Max(TimeSpan a, TimeSpan b) => a > b ? a : b;
+
+    private static TimeSpan Clamp(TimeSpan value, TimeSpan min, TimeSpan max)
+        => value < min ? min : (value > max ? max : value);
+
     public void Dispose()
     {
-        _autoRetryTimer?.Dispose();
-        _autoSessionCts?.Cancel();
-        _autoSessionCts?.Dispose();
-        _microphone.Dispose();
+        _autoPollTimer?.Dispose();
+        _capture.Dispose();
         _shazamClient.Dispose();
     }
 }

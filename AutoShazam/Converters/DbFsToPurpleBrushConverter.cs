@@ -7,27 +7,24 @@ namespace AutoShazam.Converters;
 
 /// <summary>
 /// Maps a dBFS level to a brush blended between the app's neutral secondary-text colour (at or
-/// below the configured silence threshold - "not coloured") and a vivid purple (at/above
+/// below <see cref="AudioLevelConstants.GlowFloorDbFs"/> - "not coloured") and a vivid purple (at/above
 /// <see cref="AudioLevelConstants.FullBrightnessDbFs"/> - full intensity). Blending starts from a
-/// floor rather than 0% so the very first sample above the threshold is clearly visible rather
-/// than fading in imperceptibly. Takes two bound values: [0] the live level, [1] the current
-/// silence threshold (user-configurable), so the "not coloured" point always tracks whatever
-/// threshold is actually in effect.
+/// floor rather than 0% so the very first sample above the floor is clearly visible rather than
+/// fading in imperceptibly.
 /// </summary>
-public sealed class DbFsToPurpleBrushConverter : IMultiValueConverter
+public sealed class DbFsToPurpleBrushConverter : IValueConverter
 {
     private const double MinVisibleBlend = 0.25;
 
     private static readonly Color BaseColor = (Color)ColorConverter.ConvertFromString("#9A9CA8");
     private static readonly Color PurpleColor = (Color)ColorConverter.ConvertFromString("#B24BF3");
 
-    public object Convert(object[] values, Type targetType, object? parameter, CultureInfo culture)
+    public object Convert(object value, Type targetType, object? parameter, CultureInfo culture)
     {
-        double dbFs = values.Length > 0 && values[0] is double d ? d : AudioLevelConstants.SilenceThresholdDbFs;
-        double threshold = values.Length > 1 && values[1] is double th ? th : AudioLevelConstants.SilenceThresholdDbFs;
+        double dbFs = value is double d ? d : AudioLevelConstants.GlowFloorDbFs;
 
-        double range = Math.Max(1, AudioLevelConstants.FullBrightnessDbFs - threshold);
-        double t = Math.Clamp((dbFs - threshold) / range, 0.0, 1.0);
+        double range = Math.Max(1, AudioLevelConstants.FullBrightnessDbFs - AudioLevelConstants.GlowFloorDbFs);
+        double t = Math.Clamp((dbFs - AudioLevelConstants.GlowFloorDbFs) / range, 0.0, 1.0);
 
         double blend = t <= 0 ? 0 : MinVisibleBlend + ((1 - MinVisibleBlend) * t);
 
@@ -38,6 +35,6 @@ public sealed class DbFsToPurpleBrushConverter : IMultiValueConverter
         return new SolidColorBrush(Color.FromRgb(r, g, b));
     }
 
-    public object[] ConvertBack(object? value, Type[] targetTypes, object? parameter, CultureInfo culture)
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();
 }

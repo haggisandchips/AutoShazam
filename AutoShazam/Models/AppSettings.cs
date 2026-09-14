@@ -1,11 +1,7 @@
-using AutoShazam.Services.Audio;
-
 namespace AutoShazam.Models;
 
-/// <summary>
-/// Persisted user settings. Deliberately does NOT include the Auto Shazam toggle state -
-/// that control always defaults to off on startup, by design.
-/// </summary>
+/// <summary>Persisted user settings. Every change is written to disk immediately (see the On*Changed
+/// partial methods on <see cref="AutoShazam.ViewModels.MainViewModel"/>), and restored as-is on startup.</summary>
 public sealed class AppSettings
 {
     public double WindowLeft { get; set; } = double.NaN;
@@ -13,24 +9,19 @@ public sealed class AppSettings
     public double WindowWidth { get; set; } = 960;
     public double WindowHeight { get; set; } = 640;
     public bool WindowMaximized { get; set; }
+
     public string? SelectedMicrophoneDeviceId { get; set; }
+    public string? SelectedSpeakerDeviceId { get; set; }
 
-    /// <summary>How long Auto Shazam will tolerate continuous silence before switching itself off.</summary>
-    public double ExtendedSilenceTimeoutSeconds { get; set; } = 15;
+    /// <summary>Which of the two is actively captured - restored on startup rather than always
+    /// defaulting to one, since the user's choice of source is a durable preference now that
+    /// there's no separate Auto Shazam toggle.</summary>
+    public AudioSourceKind ActiveAudioSource { get; set; } = AudioSourceKind.Microphone;
 
-    /// <summary>
-    /// The dBFS level below which the microphone input is considered silent. Less negative
-    /// (e.g. -30) requires louder sound to count as "not silence," ignoring faint background
-    /// noise; more negative (e.g. -60) picks up even very quiet sounds.
-    /// </summary>
-    public double SilenceThresholdDbFs { get; set; } = AudioLevelConstants.SilenceThresholdDbFs;
-
-    /// <summary>
-    /// How long (in milliseconds) the sound level has to sit on one side of the silence threshold
-    /// before the sound-level icon/tooltip commits to it. Smooths out flicker from borderline-quiet
-    /// noises that hover right around the threshold.
-    /// </summary>
-    public double SoundStateDebounceMs { get; set; } = 200;
+    /// <summary>Device IDs the user has marked as "offered" in Settings - these are what populate
+    /// the right-click picker on the microphone/speaker icons. Empty means nothing has been
+    /// curated yet, in which case every device of the relevant kind is offered.</summary>
+    public HashSet<string> OfferedDeviceIds { get; set; } = new();
 
     /// <summary>Whether to silently check for updates on startup (installed release builds only).</summary>
     public bool AutomaticallyCheckForUpdates { get; set; } = true;

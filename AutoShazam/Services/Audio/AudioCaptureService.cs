@@ -1,3 +1,4 @@
+using AutoShazam.Models;
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
@@ -11,17 +12,68 @@ internal sealed class LevelSampleEventArgs : EventArgs
 }
 
 /// <summary>
-/// Owns a single WASAPI capture stream for a selected microphone, continuously resampling to
-/// 16kHz mono PCM16 (the format Shazam's signature algorithm expects) and exposing both a live
-/// level meter (for silence detection) and on-demand recording snippets (for recognition).
+/// Downmixes any channel count to mono by averaging. NAudio's own <c>ISampleProvider.ToMono()</c>
+/// only handles the mono (pass-through) and exactly-stereo cases - it throws "Source must be
+/// stereo" for anything else, which loopback-capturing a speaker configured for 5.1/7.1 surround
+/// hits immediately, since WASAPI loopback uses the device's own mix format.
 /// </summary>
-internal sealed class MicrophoneCaptureService : IDisposable
+internal sealed class DownmixToMonoSampleProvider : ISampleProvider
+{
+    private readonly ISampleProvider _source;
+    private readonly int _channels;
+    private float[]? _sourceBuffer;
+
+    public DownmixToMonoSampleProvider(ISampleProvider source)
+    {
+        _source = source;
+        _channels = source.WaveFormat.Channels;
+        WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(source.WaveFormat.SampleRate, 1);
+    }
+
+    public WaveFormat WaveFormat { get; }
+
+    public int Read(float[] buffer, int offset, int count)
+    {
+        int sourceSamplesNeeded = count * _channels;
+        if (_sourceBuffer is null || _sourceBuffer.Length < sourceSamplesNeeded)
+        {
+            _sourceBuffer = new float[sourceSamplesNeeded];
+        }
+
+        int sourceSamplesRead = _source.Read(_sourceBuffer, 0, sourceSamplesNeeded);
+        int framesRead = sourceSamplesRead / _channels;
+
+        for (int frame = 0; frame < framesRead; frame++)
+        {
+            float sum = 0;
+            int baseIndex = frame * _channels;
+            for (int channel = 0; channel < _channels; channel++)
+            {
+                sum += _sourceBuffer[baseIndex + channel];
+            }
+
+            buffer[offset + frame] = sum / _channels;
+        }
+
+        return framesRead;
+    }
+}
+
+/// <summary>
+/// Owns a single WASAPI capture stream - either a microphone or a loopback tap on a speaker/render
+/// device - continuously resampling to 16kHz mono PCM16 (the format Shazam's signature algorithm
+/// expects) and exposing both a live level meter and on-demand recording snippets (for recognition).
+/// </summary>
+internal sealed class AudioCaptureService : IDisposable
 {
     private const int TargetSampleRate = 16000;
     private const int MaxOutputFramesPerCallback = 4000; // 250ms ceiling; actual yield is bounded by available input
 
     private readonly object _sync = new();
     private readonly AudioDeviceService _deviceService = new();
+
+    private AudioSourceKind _kind = AudioSourceKind.Microphone;
+    private string? _deviceId;
 
     private WasapiCapture? _capture;
     private BufferedWaveProvider? _buffered;
@@ -34,7 +86,7 @@ internal sealed class MicrophoneCaptureService : IDisposable
 
     public event EventHandler<LevelSampleEventArgs>? LevelSample;
 
-    /// <summary>Raised whenever capture actually starts or stops (continuous mode, or a one-shot recording).</summary>
+    /// <summary>Raised whenever capture actually starts or stops.</summary>
     public event EventHandler<bool>? ActiveChanged;
 
     public bool IsRunning
@@ -42,7 +94,20 @@ internal sealed class MicrophoneCaptureService : IDisposable
         get { lock (_sync) { return _capture is not null; } }
     }
 
-    public void StartContinuous(string? deviceId)
+    /// <summary>Records what to capture next time it (re)starts, without touching a stream that's
+    /// already running - the caller decides when to actually apply it via <see cref="Restart"/>.</summary>
+    public void SetSource(AudioSourceKind kind, string? deviceId)
+    {
+        lock (_sync)
+        {
+            _kind = kind;
+            _deviceId = deviceId;
+        }
+    }
+
+    /// <summary>Starts capture if it isn't already running. Throws if the configured device is
+    /// unavailable.</summary>
+    public void Start()
     {
         lock (_sync)
         {
@@ -50,11 +115,23 @@ internal sealed class MicrophoneCaptureService : IDisposable
             {
                 return;
             }
-            StartCaptureLocked(deviceId);
+
+            StartCaptureLocked();
         }
     }
 
-    public void StopContinuous()
+    /// <summary>Stops and restarts capture against whatever source is currently configured. Throws
+    /// if the new device is unavailable (capture is left stopped, not the old source).</summary>
+    public void Restart()
+    {
+        lock (_sync)
+        {
+            StopCaptureLocked();
+            StartCaptureLocked();
+        }
+    }
+
+    public void Stop()
     {
         lock (_sync)
         {
@@ -63,11 +140,11 @@ internal sealed class MicrophoneCaptureService : IDisposable
     }
 
     /// <summary>
-    /// Records a snippet of roughly <paramref name="duration"/> of 16kHz mono PCM16 audio.
-    /// Reuses continuous capture if already running; otherwise starts and tears down a
-    /// temporary capture for just this call.
+    /// Records a snippet of roughly <paramref name="duration"/> of 16kHz mono PCM16 audio from
+    /// whatever is currently configured. Reuses continuous capture if already running; otherwise
+    /// starts and tears down a temporary capture for just this call.
     /// </summary>
-    public async Task<short[]> RecordSnippetAsync(string? deviceId, TimeSpan duration, CancellationToken cancellationToken)
+    public async Task<short[]> RecordSnippetAsync(TimeSpan duration, CancellationToken cancellationToken)
     {
         TaskCompletionSource<short[]> tcs;
         bool ownsCapture;
@@ -77,7 +154,7 @@ internal sealed class MicrophoneCaptureService : IDisposable
             ownsCapture = _capture is null;
             if (ownsCapture)
             {
-                StartCaptureLocked(deviceId);
+                StartCaptureLocked();
             }
 
             _recordingTargetSamples = (int)(duration.TotalSeconds * TargetSampleRate);
@@ -109,12 +186,17 @@ internal sealed class MicrophoneCaptureService : IDisposable
         }
     }
 
-    private void StartCaptureLocked(string? deviceId)
+    private void StartCaptureLocked()
     {
-        var device = _deviceService.GetDeviceById(deviceId)
-            ?? throw new InvalidOperationException("No microphone is available.");
+        var kind = _kind;
+        var device = _deviceService.GetDeviceById(_deviceId, kind)
+            ?? throw new InvalidOperationException(kind == AudioSourceKind.Speaker
+                ? "No speaker output device is available."
+                : "No microphone is available.");
 
-        var capture = new WasapiCapture(device) { ShareMode = AudioClientShareMode.Shared };
+        WasapiCapture capture = kind == AudioSourceKind.Speaker
+            ? new WasapiLoopbackCapture(device)
+            : new WasapiCapture(device) { ShareMode = AudioClientShareMode.Shared };
 
         var buffered = new BufferedWaveProvider(capture.WaveFormat)
         {
@@ -123,7 +205,13 @@ internal sealed class MicrophoneCaptureService : IDisposable
             BufferDuration = TimeSpan.FromSeconds(2),
         };
 
-        ISampleProvider sampleProvider = buffered.ToSampleProvider().ToMono();
+        ISampleProvider stereoOrMono = buffered.ToSampleProvider();
+        ISampleProvider sampleProvider = stereoOrMono.WaveFormat.Channels switch
+        {
+            1 => stereoOrMono,
+            2 => stereoOrMono.ToMono(),
+            _ => new DownmixToMonoSampleProvider(stereoOrMono), // e.g. 5.1/7.1 surround loopback
+        };
         var resampled = sampleProvider.WaveFormat.SampleRate == TargetSampleRate
             ? sampleProvider
             : new WdlResamplingSampleProvider(sampleProvider, TargetSampleRate);
@@ -164,8 +252,8 @@ internal sealed class MicrophoneCaptureService : IDisposable
 
         // A recording in progress will never reach its target sample count now that capture has
         // stopped - without this, RecordSnippetAsync's awaiter would hang forever, leaving the
-        // coordinator permanently "busy" (and e.g. the Shazam button permanently disabled).
-        _recordingTcs?.TrySetException(new MicrophoneStoppedException());
+        // coordinator permanently "busy".
+        _recordingTcs?.TrySetException(new CaptureStoppedException());
 
         ActiveChanged?.Invoke(this, false);
     }

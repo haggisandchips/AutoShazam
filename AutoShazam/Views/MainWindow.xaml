@@ -57,11 +57,21 @@
                 </MenuItem>
             </Menu>
 
-            <!-- Auto Shazam toggle lives in the title bar, defaults off -->
+            <!-- Source picker (click to select microphone/speaker, right-click to choose a device)
+                 plus the Auto Shazam toggle - the two are independent: the icons only reflect
+                 which source is selected, never whether Auto Shazam or a manual check is running. -->
             <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center"
                         Margin="0,0,10,0" shell:WindowChrome.IsHitTestVisibleInChrome="True">
-                <TextBlock Text="&#xE720;" FontFamily="Segoe MDL2 Assets" Style="{StaticResource MicIconStyle}"
-                           Margin="0,0,10,0"/>
+                <Border x:Name="SpeakerIconHost" Background="Transparent" Margin="0,0,10,0" Cursor="Hand"
+                        PreviewMouseLeftButtonUp="SpeakerIconHost_MouseLeftButtonUp"
+                        PreviewMouseRightButtonUp="SpeakerIconHost_MouseRightButtonUp">
+                    <TextBlock Text="&#xE7F5;" FontFamily="Segoe MDL2 Assets" Style="{StaticResource SpeakerIconStyle}"/>
+                </Border>
+                <Border x:Name="MicIconHost" Background="Transparent" Margin="0,0,10,0" Cursor="Hand"
+                        PreviewMouseLeftButtonUp="MicIconHost_MouseLeftButtonUp"
+                        PreviewMouseRightButtonUp="MicIconHost_MouseRightButtonUp">
+                    <TextBlock Text="&#xE720;" FontFamily="Segoe MDL2 Assets" Style="{StaticResource MicIconStyle}"/>
+                </Border>
                 <TextBlock Text="&#xEC4F;" FontFamily="Segoe MDL2 Assets" Style="{StaticResource SoundLevelIconStyle}"
                            Margin="0,0,10,0"/>
                 <TextBlock Text="&#xE945;" FontFamily="Segoe MDL2 Assets" Style="{StaticResource ShazamQueryIconStyle}"
@@ -70,7 +80,55 @@
                            Foreground="{StaticResource TitleBarForeground}" FontSize="12"/>
                 <ToggleButton Style="{StaticResource ToggleSwitchStyle}"
                               IsChecked="{Binding IsAutoShazamEnabled, Mode=TwoWay}"
-                              ToolTip="Automatically listen for track changes and recognize what's playing"/>
+                              ToolTip="Automatically re-check at regular intervals for track changes"/>
+
+                <Popup x:Name="SpeakerDevicePopup" PlacementTarget="{Binding ElementName=SpeakerIconHost}"
+                       Placement="Bottom" AllowsTransparency="True" StaysOpen="False" PopupAnimation="Fade">
+                    <Border Background="{StaticResource PanelBackgroundBrush}" BorderBrush="{StaticResource PanelBorderBrush}"
+                            BorderThickness="1" CornerRadius="6" Padding="4" MinWidth="220" MaxHeight="260"
+                            Margin="0,4,0,0">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <ItemsControl x:Name="SpeakerDeviceList">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Button Tag="{Binding Device}" Click="SpeakerDeviceItem_Click"
+                                                Style="{StaticResource DevicePickerItemStyle}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="&#xE73E;" FontFamily="Segoe MDL2 Assets" Width="18"
+                                                           Visibility="{Binding IsSelected, Converter={StaticResource BoolToVisibility}}"/>
+                                                <TextBlock Text="{Binding Device.Name}" TextTrimming="CharacterEllipsis"/>
+                                            </StackPanel>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Border>
+                </Popup>
+
+                <Popup x:Name="MicDevicePopup" PlacementTarget="{Binding ElementName=MicIconHost}"
+                       Placement="Bottom" AllowsTransparency="True" StaysOpen="False" PopupAnimation="Fade">
+                    <Border Background="{StaticResource PanelBackgroundBrush}" BorderBrush="{StaticResource PanelBorderBrush}"
+                            BorderThickness="1" CornerRadius="6" Padding="4" MinWidth="220" MaxHeight="260"
+                            Margin="0,4,0,0">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <ItemsControl x:Name="MicDeviceList">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Button Tag="{Binding Device}" Click="MicDeviceItem_Click"
+                                                Style="{StaticResource DevicePickerItemStyle}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="&#xE73E;" FontFamily="Segoe MDL2 Assets" Width="18"
+                                                           Visibility="{Binding IsSelected, Converter={StaticResource BoolToVisibility}}"/>
+                                                <TextBlock Text="{Binding Device.Name}" TextTrimming="CharacterEllipsis"/>
+                                            </StackPanel>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Border>
+                </Popup>
             </StackPanel>
 
             <StackPanel Grid.Column="3" Orientation="Horizontal" shell:WindowChrome.IsHitTestVisibleInChrome="True">
@@ -107,6 +165,16 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
+
+                        <!-- Dismiss the current result and go back to "No song identified yet" -->
+                        <Button Grid.Column="1" Style="{StaticResource TitleBarIconButtonStyle}"
+                                HorizontalAlignment="Right" VerticalAlignment="Top"
+                                Command="{Binding ClearResultCommand}"
+                                Visibility="{Binding HasResult, Converter={StaticResource BoolToVisibility}}"
+                                ToolTip="Remove this result">
+                            <TextBlock Text="&#xE711;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                       Foreground="{StaticResource SecondaryTextBrush}"/>
+                        </Button>
 
                         <!-- Left half: square artwork, as large as fits -->
                         <Viewbox Grid.Column="0" Stretch="Uniform" Margin="0,0,24,0">

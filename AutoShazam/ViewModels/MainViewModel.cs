@@ -201,10 +201,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             IsBusy = false;
 
-            // Recognition runs periodically and re-confirms whatever's still playing. Treat that
-            // as a no-op for lyrics/sync rather than the same track it already had: resetting the
-            // sync clock would jump the highlighted line, and reloading would flash-rebuild the
-            // lyrics list, even though nothing actually changed.
+            // Recognition runs periodically and re-confirms whatever's still playing - reloading
+            // lyrics on every one of those would flash-rebuild the list for no reason, so that
+            // part stays gated on it genuinely being a different track.
             bool isNewTrack = !string.Equals(ResultArtist, result.Artist, StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(ResultTitle, result.Title, StringComparison.OrdinalIgnoreCase);
 
@@ -214,11 +213,18 @@ public partial class MainViewModel : ObservableObject, IDisposable
             HasResult = true;
             StatusText = string.Empty; // artist/title are already shown prominently above
 
+            // Timing, though, is resynced on every match, same track or not: a re-confirmation
+            // still carries a real, current playback position from Shazam, and trusting it - not
+            // just extrapolating from whenever the track was first matched - is what lets the
+            // lyrics notice the track being rewound/seeked instead of silently playing on from the
+            // original position. A genuine no-match is ignored entirely (nothing to resync to);
+            // repeated no-matches (e.g. to eventually decide the track has stopped) are a
+            // separate concern for later.
+            _matchOffsetSeconds = result.MatchOffsetSeconds;
+            _matchRecordingStartedUtc = result.RecordingStartedUtc;
+
             if (isNewTrack)
             {
-                _matchOffsetSeconds = result.MatchOffsetSeconds;
-                _matchRecordingStartedUtc = result.RecordingStartedUtc;
-
                 _ = LoadLyricsAsync(result.Artist, result.Title);
             }
         });

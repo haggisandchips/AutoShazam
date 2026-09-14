@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.5.0
+
+- **Mini lyrics preview**: when synced lyrics are available, a compact 3-line panel (previous/
+  current/next) now sits in the main window itself instead of just a "Lyrics" button - the
+  upcoming line scrolls into the middle slot shortly before it's due, and stays fully blank until
+  the first line is actually about to start rather than sitting there through the whole intro. A
+  pop-out icon opens the full Lyrics window as before. The plain-text Lyrics button is unchanged
+  for tracks without line timing.
+- **Fix**: lyrics timing now resyncs on every Shazam match, not just when the track changes - if a
+  song is rewound or seeked, both the mini panel and the Lyrics window pick up the new position
+  instead of continuing to play through from wherever it was first matched.
+
 ## v1.4.0
 
 - **Speaker capture**: alongside the microphone, AutoShazam can now capture speaker output

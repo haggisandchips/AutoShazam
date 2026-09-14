@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.4.0
+
+- **Speaker capture**: alongside the microphone, AutoShazam can now capture speaker output
+  (WASAPI loopback) - a new speaker icon sits next to the microphone one; click either to select
+  it, right-click for a device picker (with a checkmark on the current selection). Selection is
+  independent of whether Auto Shazam or a manual check happens to be running at the time.
+- **Removed silence detection**: Auto Shazam no longer waits for silence gaps between tracks;
+  instead it polls on a self-paced interval (never more than once every 5 seconds), backing off
+  automatically if Shazam's response signals it's being queried too fast.
+- **Settings**: repurposed into a device checklist - mark which microphones/speakers are "offered"
+  in the picker - alongside the existing automatic-update-check toggle.
+- **Status line**: now reflects what's actually happening (Listening.../Shazaming/Idle/blank)
+  instead of a single static message.
+- **Result panel**: added a dismiss button to manually clear the current match.
+- Rounded the corners of the Lyrics button.
+- **Fix**: capturing from a speaker configured for surround sound (5.1/7.1) no longer crashes with
+  "Source must be stereo".
+- **Fix**: unchecking an offered device in Settings, and the microphone/speaker auto-picked on
+  first run, are now actually persisted - previously both could silently revert on restart.
+
 ## v1.3.0
 
 - **Synced lyrics**: lyrics lookup now tries LRCLIB first, which can return line-by-line timed

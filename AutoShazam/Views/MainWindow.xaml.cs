@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -35,6 +36,7 @@ public partial class MainWindow : Window
         _viewModel.PropertyChanged += ViewModel_PropertyChanged;
 
         RestoreWindowPlacement();
+        RestoreArtPanelSplit();
 
         _placementSaveTimer.Tick += (_, _) =>
         {
@@ -169,6 +171,30 @@ public partial class MainWindow : Window
             settings.WindowHeight = bounds.Height;
         }
 
+        _settingsService.Save(settings);
+    }
+
+    private void RestoreArtPanelSplit()
+    {
+        // Clamp defensively: a hand-edited or otherwise out-of-range stored ratio shouldn't be
+        // able to collapse either half to nothing.
+        double ratio = Math.Clamp(_viewModel.Settings.ArtPanelSplitRatio, 0.15, 0.85);
+        ArtColumn.Width = new GridLength(ratio, GridUnitType.Star);
+        InfoColumn.Width = new GridLength(1 - ratio, GridUnitType.Star);
+    }
+
+    private void ArtPanelSplitter_DragCompleted(object sender, DragCompletedEventArgs e)
+    {
+        double artStars = ArtColumn.Width.Value;
+        double infoStars = InfoColumn.Width.Value;
+        double total = artStars + infoStars;
+        if (total <= 0)
+        {
+            return;
+        }
+
+        var settings = _viewModel.Settings;
+        settings.ArtPanelSplitRatio = artStars / total;
         _settingsService.Save(settings);
     }
 

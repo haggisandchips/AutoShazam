@@ -162,12 +162,21 @@
                     <!-- Art + artist/title -->
                     <Grid Grid.Row="0">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition x:Name="ArtColumn" Width="*"/>
+                            <ColumnDefinition Width="24"/>
+                            <ColumnDefinition x:Name="InfoColumn" Width="*"/>
                         </Grid.ColumnDefinitions>
 
+                        <!-- Invisible grab bar between the two halves - same width as the gap it
+                             replaces, just draggable. Background must be non-null (even if
+                             transparent) for the Border to be hit-test visible. -->
+                        <GridSplitter Grid.Column="1" Width="24" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                      Background="Transparent" BorderThickness="0" ShowsPreview="False"
+                                      ResizeBehavior="PreviousAndNext" Cursor="SizeWE"
+                                      DragCompleted="ArtPanelSplitter_DragCompleted"/>
+
                         <!-- Dismiss the current result and go back to "No song identified yet" -->
-                        <Button Grid.Column="1" Style="{StaticResource TitleBarIconButtonStyle}"
+                        <Button Grid.Column="2" Style="{StaticResource TitleBarIconButtonStyle}"
                                 HorizontalAlignment="Right" VerticalAlignment="Top"
                                 Command="{Binding ClearResultCommand}"
                                 Visibility="{Binding HasResult, Converter={StaticResource BoolToVisibility}}"
@@ -177,7 +186,7 @@
                         </Button>
 
                         <!-- Left half: square artwork, as large as fits -->
-                        <Viewbox Grid.Column="0" Stretch="Uniform" Margin="0,0,24,0">
+                        <Viewbox Grid.Column="0" Stretch="Uniform">
                             <Border Width="320" Height="320" CornerRadius="14" ClipToBounds="True"
                                     Background="#33353F">
                                 <Grid>
@@ -191,7 +200,7 @@
                         </Viewbox>
 
                         <!-- Right half: artist / title -->
-                        <StackPanel Grid.Column="1" Margin="24,0,0,0" VerticalAlignment="Center">
+                        <StackPanel Grid.Column="2" VerticalAlignment="Center">
                             <TextBlock Text="{Binding ResultArtist}" FontSize="36" FontWeight="Bold"
                                        Foreground="{StaticResource PrimaryTextBrush}" TextWrapping="Wrap"
                                        Visibility="{Binding HasResult, Converter={StaticResource BoolToVisibility}}"/>

@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.5.1
+
+- **Resizable panels**: an invisible grab bar between the artwork and artist/title halves of the
+  main panel lets you drag to resize them; the split is persisted and restored on restart.
+
 ## v1.5.0
 
 - **Mini lyrics preview**: when synced lyrics are available, a compact 3-line panel (previous/

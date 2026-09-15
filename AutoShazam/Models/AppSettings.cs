@@ -25,4 +25,9 @@ public sealed class AppSettings
 
     /// <summary>Whether to silently check for updates on startup (installed release builds only).</summary>
     public bool AutomaticallyCheckForUpdates { get; set; } = true;
+
+    /// <summary>The artwork column's star-width share of the main panel's artwork/artist-title
+    /// split (the other share is 1 minus this) - persisted so a manual drag of the grab bar
+    /// between them sticks between launches.</summary>
+    public double ArtPanelSplitRatio { get; set; } = 0.5;
 }

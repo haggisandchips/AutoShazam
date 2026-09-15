@@ -95,6 +95,14 @@ internal sealed class AudioCaptureService : IDisposable
     private ISampleProvider? _resampled;
     private float[]? _scratch;
 
+    // Windows suspends a render device's shared audio engine - and with it, any loopback capture
+    // on that device - once nothing is actually rendering to it, so WasapiLoopbackCapture.DataAvailable
+    // simply stops firing the moment playback stops (not "fires with silence", just stops firing at
+    // all). Playing real, inaudible silence to the same device keeps the engine alive so loopback
+    // capture keeps producing genuine (silent) samples instead of freezing on whatever audio was
+    // last actually playing. Only used for AudioSourceKind.Speaker.
+    private WasapiOut? _silenceKeepAlive;
+
     private List<short>? _recordingBuffer;
     private int _recordingTargetSamples;
     private TaskCompletionSource<short[]>? _recordingTcs;
@@ -202,6 +210,19 @@ internal sealed class AudioCaptureService : IDisposable
 
         try
         {
+            // A generous ceiling above the clip length itself - in the ordinary case this never
+            // matters (the recording finishes on its own well within it), but without it a device
+            // that genuinely stops delivering data (e.g. a loopback capture whose keep-alive
+            // silence stream also failed to start) leaves this awaiting forever, which in turn
+            // leaves the coordinator permanently "busy" and the manual Shazam button permanently
+            // disabled.
+            var timeout = Task.Delay(duration + TimeSpan.FromSeconds(10));
+            var completed = await Task.WhenAny(tcs.Task, timeout).ConfigureAwait(false);
+            if (completed == timeout)
+            {
+                throw new TimeoutException("No audio was captured - the selected device may not be producing any data.");
+            }
+
             var samples = await tcs.Task.ConfigureAwait(false);
             return new RecordedClip(samples, startedUtc);
         }
@@ -260,6 +281,24 @@ internal sealed class AudioCaptureService : IDisposable
         _rollingFilledCount = 0;
 
         capture.StartRecording();
+
+        if (kind == AudioSourceKind.Speaker)
+        {
+            try
+            {
+                var silenceOut = new WasapiOut(device, AudioClientShareMode.Shared, false, 200);
+                silenceOut.Init(new SilenceProvider(device.AudioClient.MixFormat));
+                silenceOut.Play();
+                _silenceKeepAlive = silenceOut;
+            }
+            catch
+            {
+                // Not fatal - loopback capture still works while something else is actually
+                // playing, it just won't survive gaps of silence on this device.
+                _silenceKeepAlive = null;
+            }
+        }
+
         ActiveChanged?.Invoke(this, true);
     }
 
@@ -285,6 +324,22 @@ internal sealed class AudioCaptureService : IDisposable
         _buffered = null;
         _resampled = null;
         _scratch = null;
+
+        if (_silenceKeepAlive is not null)
+        {
+            try
+            {
+                _silenceKeepAlive.Stop();
+            }
+            catch
+            {
+                // best-effort stop
+            }
+
+            _silenceKeepAlive.Dispose();
+            _silenceKeepAlive = null;
+        }
+
         _rollingBuffer = null;
         _rollingWritePos = 0;
         _rollingFilledCount = 0;

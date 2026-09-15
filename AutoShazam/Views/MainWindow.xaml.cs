@@ -18,6 +18,9 @@ public partial class MainWindow : Window
     // Must match the fixed Height set on each line in the lyrics preview's DataTemplate.
     private const double LyricsPreviewLineHeight = 28;
 
+    // The panel's fully-open height: the ScrollViewer's own 84 plus its 8px top/bottom Padding.
+    private const double LyricsPreviewPanelHeight = 84 + 8 + 8;
+
     // Slower than the normal per-line scroll (see NormalLyricsScrollDuration) - matched by
     // MainViewModel.LyricsPreviewFirstLineLead, which keeps the panel blank long enough beforehand
     // for this to still settle before the line goes current.
@@ -26,6 +29,12 @@ public partial class MainWindow : Window
 
     private readonly MainViewModel _viewModel;
     private readonly SettingsService _settingsService;
+
+    // The lyrics preview panel's Background needs to be an unfrozen, per-instance brush so its
+    // Color can be animated without touching the shared PanelBorderBrush resource used everywhere
+    // else. Cached colors avoid repeated FindResource lookups on every reset/reveal.
+    private readonly Color _lyricsPreviewBlendedColor;
+    private readonly Color _lyricsPreviewRevealedColor;
 
     // Position/size change while dragging or resizing fire continuously - debounce those into a
     // single write shortly after the user stops, rather than hitting the database on every pixel.
@@ -38,6 +47,10 @@ public partial class MainWindow : Window
         _viewModel = viewModel;
         _settingsService = settingsService;
         DataContext = _viewModel;
+
+        _lyricsPreviewBlendedColor = ((SolidColorBrush)FindResource("PanelBackgroundBrush")).Color;
+        _lyricsPreviewRevealedColor = ((SolidColorBrush)FindResource("PanelBorderBrush")).Color;
+        LyricsPreviewPanel.Background = new SolidColorBrush(_lyricsPreviewBlendedColor);
 
         _viewModel.PropertyChanged += ViewModel_PropertyChanged;
 
@@ -99,22 +112,53 @@ public partial class MainWindow : Window
         {
             // A reset (new track, or the result was cleared) - the index only ever goes back to
             // -2 via an explicit reset, never as part of normal forward progress, so snap instantly
-            // instead of animating backward from wherever the panel happened to be.
+            // instead of animating backward from wherever the panel happened to be: the panel
+            // collapses flat and blends back into the surrounding panel's own colour, ready to
+            // reveal itself again from scratch for whatever comes next.
             LyricsPreviewScroll.BeginAnimation(ScrollViewerOffsetAnimation.VerticalOffsetProperty, null);
             ScrollViewerOffsetAnimation.SetVerticalOffset(LyricsPreviewScroll, targetOffset);
+
+            LyricsPreviewPanel.BeginAnimation(HeightProperty, null);
+            LyricsPreviewPanel.Height = 0;
+            var brush = (SolidColorBrush)LyricsPreviewPanel.Background;
+            brush.BeginAnimation(SolidColorBrush.ColorProperty, null);
+            brush.Color = _lyricsPreviewBlendedColor;
             return;
         }
 
         // The very first line's entrance from blank is a longer scroll than the usual step between
-        // lines, so it reads as a deliberate reveal rather than a snap.
+        // lines, so it reads as a deliberate reveal rather than a snap - and, rather than just the
+        // text scrolling into an already-visible box, the box itself grows open from nothing and
+        // tints from the surrounding panel's colour to its own at the same time, so the artist/
+        // title above (centered as a whole with this panel, so it visibly gets nudged upward as
+        // this grows) and the panel arriving all read as one continuous gesture.
         bool isFirstLineEntrance = previousIndex <= -2;
-        var animation = new DoubleAnimation
+        var easing = new QuadraticEase { EasingMode = EasingMode.EaseInOut };
+        var duration = isFirstLineEntrance ? FirstLineScrollDuration : NormalLyricsScrollDuration;
+
+        LyricsPreviewScroll.BeginAnimation(ScrollViewerOffsetAnimation.VerticalOffsetProperty, new DoubleAnimation
         {
             To = targetOffset,
-            Duration = isFirstLineEntrance ? FirstLineScrollDuration : NormalLyricsScrollDuration,
-            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseInOut },
-        };
-        LyricsPreviewScroll.BeginAnimation(ScrollViewerOffsetAnimation.VerticalOffsetProperty, animation);
+            Duration = duration,
+            EasingFunction = easing,
+        });
+
+        if (isFirstLineEntrance)
+        {
+            LyricsPreviewPanel.BeginAnimation(HeightProperty, new DoubleAnimation
+            {
+                To = LyricsPreviewPanelHeight,
+                Duration = duration,
+                EasingFunction = easing,
+            });
+
+            ((SolidColorBrush)LyricsPreviewPanel.Background).BeginAnimation(SolidColorBrush.ColorProperty, new ColorAnimation
+            {
+                To = _lyricsPreviewRevealedColor,
+                Duration = duration,
+                EasingFunction = easing,
+            });
+        }
     }
 
     private void SchedulePlacementSave()

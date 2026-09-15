@@ -222,10 +222,14 @@
                                  it's actually due - see MainViewModel.PreviewLyricLineIndex and
                                  MainWindow.xaml.cs's animation of the ScrollViewer's offset (via
                                  ScrollViewerOffsetAnimation - VerticalOffset itself isn't a
-                                 dependency property, so it can't be animated directly). The panel
-                                 stays fully blank until shortly before the first line is due. -->
-                            <Border Background="{StaticResource PanelBorderBrush}" CornerRadius="10"
-                                    Padding="14,8" Margin="0,16,0,0"
+                                 dependency property, so it can't be animated directly). Starts
+                                 collapsed to zero height (so the artist/title above it sits where it
+                                 would with no lyrics at all, since the containing StackPanel is
+                                 vertically centered) and, in step with the scroll, grows open and
+                                 fades from the surrounding panel's own colour to its own as the
+                                 first line is about to start - see AnimateLyricsPreview. -->
+                            <Border x:Name="LyricsPreviewPanel" CornerRadius="10" ClipToBounds="True"
+                                    Padding="14,8" Margin="0,16,0,0" Height="0"
                                     Visibility="{Binding HasSyncedLyrics, Converter={StaticResource BoolToVisibility}}">
                                 <Grid>
                                     <Grid.ColumnDefinitions>

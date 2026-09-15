@@ -18,6 +18,12 @@ public partial class MainWindow : Window
     // Must match the fixed Height set on each line in the lyrics preview's DataTemplate.
     private const double LyricsPreviewLineHeight = 28;
 
+    // Slower than the normal per-line scroll (see NormalLyricsScrollDuration) - matched by
+    // MainViewModel.LyricsPreviewFirstLineLead, which keeps the panel blank long enough beforehand
+    // for this to still settle before the line goes current.
+    private static readonly TimeSpan FirstLineScrollDuration = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan NormalLyricsScrollDuration = TimeSpan.FromMilliseconds(220);
+
     private readonly MainViewModel _viewModel;
     private readonly SettingsService _settingsService;
 
@@ -74,29 +80,38 @@ public partial class MainWindow : Window
         }
     }
 
+    // Tracks the previous value so the entrance from blank (see AnimateLyricsPreview) can be told
+    // apart from every other, much shorter, step.
+    private int _lastPreviewLyricLineIndex = -2;
+
     private void AnimateLyricsPreview()
     {
+        int newIndex = _viewModel.PreviewLyricLineIndex;
+        int previousIndex = _lastPreviewLyricLineIndex;
+        _lastPreviewLyricLineIndex = newIndex;
+
         // +2 accounts for the leading 84px (3-line) blank spacer in the ScrollViewer's content -
         // see MainWindow.xaml - so offset 0 shows nothing, and each step afterward centers one
         // more line.
-        double targetOffset = (_viewModel.PreviewLyricLineIndex + 2) * LyricsPreviewLineHeight;
+        double targetOffset = (newIndex + 2) * LyricsPreviewLineHeight;
 
-        if (_viewModel.PreviewLyricLineIndex <= -2)
+        if (newIndex <= -2)
         {
             // A reset (new track, or the result was cleared) - the index only ever goes back to
-            // -2 via an explicit reset, never as part of normal forward progress (-2 -> -1, the
-            // first line scrolling into the bottom slot, is a normal animated transition like any
-            // other), so snap instantly instead of animating backward from wherever the panel
-            // happened to be.
+            // -2 via an explicit reset, never as part of normal forward progress, so snap instantly
+            // instead of animating backward from wherever the panel happened to be.
             LyricsPreviewScroll.BeginAnimation(ScrollViewerOffsetAnimation.VerticalOffsetProperty, null);
             ScrollViewerOffsetAnimation.SetVerticalOffset(LyricsPreviewScroll, targetOffset);
             return;
         }
 
+        // The very first line's entrance from blank is a longer scroll than the usual step between
+        // lines, so it reads as a deliberate reveal rather than a snap.
+        bool isFirstLineEntrance = previousIndex <= -2;
         var animation = new DoubleAnimation
         {
             To = targetOffset,
-            Duration = TimeSpan.FromMilliseconds(220),
+            Duration = isFirstLineEntrance ? FirstLineScrollDuration : NormalLyricsScrollDuration,
             EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseInOut },
         };
         LyricsPreviewScroll.BeginAnimation(ScrollViewerOffsetAnimation.VerticalOffsetProperty, animation);

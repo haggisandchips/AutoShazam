@@ -33,11 +33,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
     /// MainWindow.xaml.cs, so the animation finishes right as the line becomes current.</summary>
     private static readonly TimeSpan LyricsPreviewLead = TimeSpan.FromMilliseconds(250);
 
-    /// <summary>How far ahead of the very first line's timestamp the preview panel scrolls it into
-    /// the bottom slot - longer than <see cref="LyricsPreviewLead"/> since otherwise the first line
-    /// would sit there, looking "active", for however long the track's intro runs before anything
-    /// is actually sung; before this, the panel stays fully blank.</summary>
-    private static readonly TimeSpan LyricsPreviewFirstLineLead = TimeSpan.FromMilliseconds(500);
+    /// <summary>How far ahead of the very first line's timestamp the preview panel starts scrolling
+    /// it into its settled slot - longer than <see cref="LyricsPreviewLead"/> since otherwise the
+    /// first line would sit there, looking "active", for however long the track's intro runs before
+    /// anything is actually sung; before this, the panel stays fully blank. Matched to the slower,
+    /// 2-second entrance animation MainWindow.xaml.cs uses for this one scroll (see
+    /// MainWindow.FirstLineScrollDuration), with a little headroom so it settles just before the
+    /// line goes current rather than exactly on top of it.</summary>
+    private static readonly TimeSpan LyricsPreviewFirstLineLead = TimeSpan.FromMilliseconds(2200);
 
     /// <summary>The loaded (and, on selection change, mutated) persisted settings object; saved
     /// immediately on every change - see the On*Changed partial methods below.</summary>
@@ -108,8 +111,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
     /// preview panel - unlike <see cref="CurrentLyricLineIndex"/> (which flips exactly on time and
     /// drives highlighting), this advances <see cref="LyricsPreviewLead"/> early so the panel's
     /// scroll animation has time to settle by the moment a line is genuinely current. -2 is the
-    /// "nothing due yet" reset state (panel fully blank) - -1 means the first line has scrolled
-    /// into the bottom slot but isn't current yet.</summary>
+    /// "nothing due yet" reset state (panel fully blank); every other value (0 and up) is a line
+    /// index, including the very first line, which jumps straight from -2 to its settled slot in
+    /// one motion rather than via an intermediate stop.</summary>
     [ObservableProperty]
     private int previewLyricLineIndex = -2;
 
@@ -522,11 +526,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         // Scroll the mini preview panel into position ahead of time - see LyricsPreviewLead. The
         // very first line gets a longer lead (and stays off entirely before that), so it doesn't
-        // just sit there for however long the track's intro runs.
+        // just sit there for however long the track's intro runs. It jumps straight from blank to
+        // its settled (centered) slot in one motion rather than via the intermediate "-1" stop
+        // every later line passes through on its way in - that stop exists only because a later
+        // line is already sitting in the bottom slot when it starts its approach, which isn't true
+        // for the very first line, and doing it anyway produced two separate back-to-back scrolls
+        // instead of one smooth one.
         int preview = FindLyricLineIndex(elapsed + LyricsPreviewLead);
-        if (preview < 0 && elapsed + LyricsPreviewFirstLineLead < _syncedLines[0].Timestamp)
+        if (preview < 0)
         {
-            preview = -2;
+            preview = elapsed + LyricsPreviewFirstLineLead < _syncedLines[0].Timestamp ? -2 : 0;
         }
 
         PreviewLyricLineIndex = preview;

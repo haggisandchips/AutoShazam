@@ -11,6 +11,13 @@ internal sealed class LevelSampleEventArgs : EventArgs
     public required TimeSpan Duration { get; init; }
 }
 
+/// <summary>A recorded clip together with the wall-clock time its first sample was actually
+/// captured at - needed (rather than just "whenever the caller happened to ask for it") because a
+/// clip served from the rolling buffer already started up to <see cref="RecordedClip"/>'s duration
+/// in the past by the time it's handed back, and lyrics sync needs to know exactly when the audio
+/// Shazam matched against was really captured relative to the match's reported track offset.</summary>
+internal readonly record struct RecordedClip(short[] Samples, DateTime StartedUtc);
+
 /// <summary>
 /// Downmixes any channel count to mono by averaging. NAudio's own <c>ISampleProvider.ToMono()</c>
 /// only handles the mono (pass-through) and exactly-stereo cases - it throws "Source must be
@@ -69,6 +76,14 @@ internal sealed class AudioCaptureService : IDisposable
     private const int TargetSampleRate = 16000;
     private const int MaxOutputFramesPerCallback = 4000; // 250ms ceiling; actual yield is bounded by available input
 
+    // While capture is running, every resampled sample is also kept here - a fixed-size window of
+    // the most recent audio, always a few seconds longer than any clip we actually ask for. This
+    // lets RecordSnippetAsync serve a request instantly once enough has accumulated, by slicing the
+    // trailing window out of already-captured audio, instead of waiting for a whole fresh clip to
+    // be recorded from scratch every time - letting Auto Shazam re-check far more often than the
+    // clip length itself without querying Shazam on genuinely fresh audio any less often.
+    private static readonly TimeSpan RollingBufferCapacity = TimeSpan.FromSeconds(12);
+
     private readonly object _sync = new();
     private readonly AudioDeviceService _deviceService = new();
 
@@ -83,6 +98,11 @@ internal sealed class AudioCaptureService : IDisposable
     private List<short>? _recordingBuffer;
     private int _recordingTargetSamples;
     private TaskCompletionSource<short[]>? _recordingTcs;
+
+    private short[]? _rollingBuffer;
+    private int _rollingWritePos;
+    private int _rollingFilledCount;
+    private DateTime _rollingBufferLastWriteUtc;
 
     public event EventHandler<LevelSampleEventArgs>? LevelSample;
 
@@ -144,10 +164,21 @@ internal sealed class AudioCaptureService : IDisposable
     /// whatever is currently configured. Reuses continuous capture if already running; otherwise
     /// starts and tears down a temporary capture for just this call.
     /// </summary>
-    public async Task<short[]> RecordSnippetAsync(TimeSpan duration, CancellationToken cancellationToken)
+    public async Task<RecordedClip> RecordSnippetAsync(TimeSpan duration, CancellationToken cancellationToken)
     {
+        // Fast path: continuous capture has already been running long enough to have this whole
+        // window buffered, so hand back a slice of it immediately. Only misses on the very first
+        // attempt after (re)starting capture (or a manual click while Auto Shazam is off, which
+        // isn't capturing continuously at all) - those fall through to actually recording below.
+        var rolling = TryGetRollingSnippet(duration);
+        if (rolling is not null)
+        {
+            return rolling.Value;
+        }
+
         TaskCompletionSource<short[]> tcs;
         bool ownsCapture;
+        DateTime startedUtc;
 
         lock (_sync)
         {
@@ -157,6 +188,7 @@ internal sealed class AudioCaptureService : IDisposable
                 StartCaptureLocked();
             }
 
+            startedUtc = DateTime.UtcNow;
             _recordingTargetSamples = (int)(duration.TotalSeconds * TargetSampleRate);
             _recordingBuffer = new List<short>(_recordingTargetSamples + TargetSampleRate);
             tcs = new TaskCompletionSource<short[]>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -170,7 +202,8 @@ internal sealed class AudioCaptureService : IDisposable
 
         try
         {
-            return await tcs.Task.ConfigureAwait(false);
+            var samples = await tcs.Task.ConfigureAwait(false);
+            return new RecordedClip(samples, startedUtc);
         }
         finally
         {
@@ -222,6 +255,9 @@ internal sealed class AudioCaptureService : IDisposable
         _buffered = buffered;
         _resampled = resampled;
         _scratch = new float[MaxOutputFramesPerCallback];
+        _rollingBuffer = new short[(int)(RollingBufferCapacity.TotalSeconds * TargetSampleRate)];
+        _rollingWritePos = 0;
+        _rollingFilledCount = 0;
 
         capture.StartRecording();
         ActiveChanged?.Invoke(this, true);
@@ -249,6 +285,9 @@ internal sealed class AudioCaptureService : IDisposable
         _buffered = null;
         _resampled = null;
         _scratch = null;
+        _rollingBuffer = null;
+        _rollingWritePos = 0;
+        _rollingFilledCount = 0;
 
         // A recording in progress will never reach its target sample count now that capture has
         // stopped - without this, RecordSnippetAsync's awaiter would hang forever, leaving the
@@ -308,6 +347,65 @@ internal sealed class AudioCaptureService : IDisposable
                     _recordingTcs.TrySetResult(_recordingBuffer.ToArray());
                 }
             }
+
+            WriteToRollingBufferLocked(samples);
+        }
+    }
+
+    /// <summary>Appends to the rolling buffer, wrapping around and overwriting the oldest audio
+    /// once full. Must be called with <see cref="_sync"/> already held.</summary>
+    private void WriteToRollingBufferLocked(short[] samples)
+    {
+        if (_rollingBuffer is null)
+        {
+            return;
+        }
+
+        int remaining = samples.Length;
+        int sourceOffset = 0;
+        while (remaining > 0)
+        {
+            int spaceToEnd = _rollingBuffer.Length - _rollingWritePos;
+            int chunk = Math.Min(remaining, spaceToEnd);
+            Array.Copy(samples, sourceOffset, _rollingBuffer, _rollingWritePos, chunk);
+            _rollingWritePos = (_rollingWritePos + chunk) % _rollingBuffer.Length;
+            sourceOffset += chunk;
+            remaining -= chunk;
+        }
+
+        _rollingFilledCount = Math.Min(_rollingFilledCount + samples.Length, _rollingBuffer.Length);
+        _rollingBufferLastWriteUtc = DateTime.UtcNow;
+    }
+
+    /// <summary>Returns the trailing <paramref name="duration"/> of already-captured audio, or null
+    /// if capture isn't running or hasn't been running long enough yet to have that much buffered.
+    /// The returned clip's StartedUtc is backdated from the most recent write, since by definition
+    /// this audio was captured before now, not starting now.</summary>
+    private RecordedClip? TryGetRollingSnippet(TimeSpan duration)
+    {
+        lock (_sync)
+        {
+            if (_rollingBuffer is null)
+            {
+                return null;
+            }
+
+            int needed = (int)(duration.TotalSeconds * TargetSampleRate);
+            if (needed > _rollingBuffer.Length || _rollingFilledCount < needed)
+            {
+                return null;
+            }
+
+            var result = new short[needed];
+            int startPos = (_rollingWritePos - needed + _rollingBuffer.Length) % _rollingBuffer.Length;
+            int firstChunk = Math.Min(needed, _rollingBuffer.Length - startPos);
+            Array.Copy(_rollingBuffer, startPos, result, 0, firstChunk);
+            if (firstChunk < needed)
+            {
+                Array.Copy(_rollingBuffer, 0, result, firstChunk, needed - firstChunk);
+            }
+
+            return new RecordedClip(result, _rollingBufferLastWriteUtc - duration);
         }
     }
 

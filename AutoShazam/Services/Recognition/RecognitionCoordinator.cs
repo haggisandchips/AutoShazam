@@ -22,7 +22,7 @@ internal sealed class RecognitionCoordinator : IDisposable
 {
     private static readonly TimeSpan RecognitionClipDuration = TimeSpan.FromSeconds(9);
     private static readonly TimeSpan MinQueryInterval = TimeSpan.FromSeconds(5);
-    private static readonly TimeSpan DefaultQueryInterval = TimeSpan.FromSeconds(12);
+    private static readonly TimeSpan DefaultQueryInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan MaxQueryInterval = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan PollTickInterval = TimeSpan.FromSeconds(1);
 
@@ -197,15 +197,14 @@ internal sealed class RecognitionCoordinator : IDisposable
 
         try
         {
-            var recordingStartedUtc = DateTime.UtcNow;
-            var samples = await _capture.RecordSnippetAsync(RecognitionClipDuration, CancellationToken.None)
+            var clip = await _capture.RecordSnippetAsync(RecognitionClipDuration, CancellationToken.None)
                 .ConfigureAwait(false);
 
             ShazamQueryActiveChanged?.Invoke(this, true);
             ShazamRecognizeOutcome outcome;
             try
             {
-                outcome = await _shazamClient.RecognizeAsync(samples, CancellationToken.None).ConfigureAwait(false);
+                outcome = await _shazamClient.RecognizeAsync(clip.Samples, CancellationToken.None).ConfigureAwait(false);
             }
             finally
             {
@@ -229,7 +228,7 @@ internal sealed class RecognitionCoordinator : IDisposable
                 _log.Write($"Attempt outcome: matched '{outcome.Match.Title}' by '{outcome.Match.Artist}'.");
                 RecognitionSucceeded?.Invoke(
                     this,
-                    new RecognitionResult(outcome.Match.Title, outcome.Match.Artist, outcome.Match.CoverArtUrl, outcome.Match.OffsetSeconds, recordingStartedUtc));
+                    new RecognitionResult(outcome.Match.Title, outcome.Match.Artist, outcome.Match.CoverArtUrl, outcome.Match.OffsetSeconds, clip.StartedUtc));
             }
         }
         catch (CaptureStoppedException)

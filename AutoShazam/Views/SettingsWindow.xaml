@@ -4,7 +4,7 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Title="Settings"
         Icon="/Assets/app.ico"
-        Width="380" Height="630" ResizeMode="NoResize"
+        Width="380" SizeToContent="Height" ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
         Background="{StaticResource WindowBackgroundBrush}">
@@ -35,31 +35,19 @@
 
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
             <StackPanel Margin="24,20,24,20">
-                <TextBlock Text="Microphones" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" Margin="2,0,0,6"/>
-                <ItemsControl ItemsSource="{Binding Microphones}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <CheckBox Content="{Binding Name}" IsChecked="{Binding IsOffered, Mode=TwoWay}"
-                                      Foreground="{StaticResource PrimaryTextBrush}" Margin="2,5"/>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-
-                <TextBlock Text="Speakers" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" Margin="2,20,0,6"/>
-                <ItemsControl ItemsSource="{Binding Speakers}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <CheckBox Content="{Binding Name}" IsChecked="{Binding IsOffered, Mode=TwoWay}"
-                                      Foreground="{StaticResource PrimaryTextBrush}" Margin="2,5"/>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                <TextBlock Text="Devices" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" Margin="2,0,0,6"/>
+                <StackPanel Orientation="Horizontal" Margin="2,0,0,0">
+                    <Button Content="Microphones..." Click="MicrophonesButton_Click" Style="{StaticResource SecondaryButtonStyle}"
+                            Padding="14,6" Margin="0,0,10,0"/>
+                    <Button Content="Speakers..." Click="SpeakersButton_Click" Style="{StaticResource SecondaryButtonStyle}"
+                            Padding="14,6"/>
+                </StackPanel>
 
                 <TextBlock Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" TextWrapping="Wrap" Margin="2,14,0,0"
-                           Text="Checked devices are offered when you right-click the microphone or speaker icon. Leave everything unchecked to offer them all."/>
+                           Text="Choose which devices are offered when you right-click the microphone or speaker icon."/>
 
                 <TextBlock Text="Recognition" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" Margin="2,20,0,6"/>
-                <StackPanel Orientation="Horizontal">
+                <StackPanel Orientation="Horizontal" Margin="2,0,0,0">
                     <TextBlock Text="Clear track after" VerticalAlignment="Center"
                                Foreground="{StaticResource PrimaryTextBrush}"/>
                     <ComboBox ItemsSource="{Binding NoMatchClearThresholdOptions}"
@@ -70,7 +58,7 @@
                 </StackPanel>
 
                 <TextBlock Text="Updates" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" Margin="2,20,0,6"/>
-                <StackPanel Orientation="Horizontal">
+                <StackPanel Orientation="Horizontal" Margin="2,0,0,0">
                     <ToggleButton Style="{StaticResource ToggleSwitchStyle}"
                                   IsChecked="{Binding AutomaticallyCheckForUpdates, Mode=TwoWay}"/>
                     <TextBlock Text="Automatically check for updates on startup" VerticalAlignment="Center"

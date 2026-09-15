@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.6.0
+
+- **Faster re-checks**: Auto Shazam now re-checks every 5 seconds instead of 12, using a rolling
+  audio buffer so a check no longer has to wait for a whole fresh clip to record first.
+- **Fix**: capturing from a speaker (loopback) no longer gets stuck re-matching the same stale
+  clip, or hangs the manual Shazam button forever, once whatever was playing stops - Windows
+  suspends a render device's audio engine when it's idle, which silently stalled the capture
+  entirely; a silent keep-alive stream now keeps it running.
+- **Fix**: lyrics could drift out of sync, since a check served from the rolling buffer had
+  actually started a little earlier than the moment it was returned - timing is now based on when
+  the audio was really captured.
+- **Auto-clear**: the current track (and its lyrics) now clears automatically after enough
+  consecutive "no match" results in a row, instead of staying on screen indefinitely - the
+  threshold is configurable in Settings (default 2).
+- **Settings**: the microphone/speaker checklists moved out of Settings into their own popups
+  (handy if you have a lot of devices), and the window now sizes itself to fit its content instead
+  of leaving blank space.
+- The mini lyrics preview panel now grows open and tints from the surrounding panel's colour to
+  its own as the first line arrives, instead of just sitting there blank; its entrance also scrolls
+  in as one smooth 2-second motion instead of two separate, back-to-back scrolls.
+
 ## v1.5.1
 
 - **Resizable panels**: an invisible grab bar between the artwork and artist/title halves of the

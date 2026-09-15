@@ -133,6 +133,17 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool automaticallyCheckForUpdates;
 
+    /// <summary>Selectable values for the Settings dropdown - 1 clears on the very first miss,
+    /// which is really "don't wait at all" territory, so the smallest offered is 2.</summary>
+    public static IReadOnlyList<int> NoMatchClearThresholdOptions { get; } = new[] { 2, 3, 4, 5 };
+
+    [ObservableProperty]
+    private int consecutiveNoMatchesToClear;
+
+    // How many "no match" results have been seen in a row - separate from the ConsecutiveNoMatchesToClear
+    // *setting* above, which is just the threshold this counts up to.
+    private int _consecutiveNoMatchCount;
+
     public MainViewModel(AppSettings settings, AppUpdateService updateService, SettingsService settingsService, string appDataRoot)
     {
         Settings = settings;
@@ -189,6 +200,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         activeSource = settings.ActiveAudioSource;
 
         automaticallyCheckForUpdates = settings.AutomaticallyCheckForUpdates;
+        consecutiveNoMatchesToClear = settings.ConsecutiveNoMatchesToClear;
 
         _lyricsSyncTimer.Tick += (_, _) => UpdateCurrentLyricLine();
 
@@ -226,6 +238,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             // separate concern for later.
             _matchOffsetSeconds = result.MatchOffsetSeconds;
             _matchRecordingStartedUtc = result.RecordingStartedUtc;
+            _consecutiveNoMatchCount = 0;
 
             if (isNewTrack)
             {
@@ -237,6 +250,17 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             IsBusy = false;
             StatusText = "No match found.";
+
+            // A single miss is routine (a brief gap between tracks, a bad sample) and not worth
+            // acting on, but enough in a row means whatever's currently shown is very likely no
+            // longer playing - clear it rather than leaving a stale match and its lyrics on screen
+            // indefinitely. Threshold is user-configurable (Settings); ClearResult resets the
+            // streak back to 0.
+            _consecutiveNoMatchCount++;
+            if (_consecutiveNoMatchCount >= ConsecutiveNoMatchesToClear && HasResult)
+            {
+                ClearResult(); // doesn't touch StatusText, so "No match found." above still stands
+            }
         });
 
         _coordinator.RecognitionFailed += (_, error) => RunOnUi(() =>
@@ -429,6 +453,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ResultTitle = null;
         ResultArtist = null;
         CoverArtUrl = null;
+        _consecutiveNoMatchCount = 0;
 
         _syncedLines = null;
         SyncedLyricLines.Clear();
@@ -452,6 +477,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
     partial void OnAutomaticallyCheckForUpdatesChanged(bool value)
     {
         Settings.AutomaticallyCheckForUpdates = value;
+        _settingsService.Save(Settings);
+    }
+
+    partial void OnConsecutiveNoMatchesToClearChanged(int value)
+    {
+        Settings.ConsecutiveNoMatchesToClear = value;
         _settingsService.Save(Settings);
     }
 

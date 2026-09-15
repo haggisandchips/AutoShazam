@@ -30,4 +30,8 @@ public sealed class AppSettings
     /// split (the other share is 1 minus this) - persisted so a manual drag of the grab bar
     /// between them sticks between launches.</summary>
     public double ArtPanelSplitRatio { get; set; } = 0.5;
+
+    /// <summary>How many consecutive "no match" results in a row clear the currently displayed
+    /// track and its lyrics, rather than leaving a stale match on screen indefinitely.</summary>
+    public int ConsecutiveNoMatchesToClear { get; set; } = 2;
 }

@@ -56,11 +56,12 @@ public sealed class SettingsService
                 INSERT INTO Settings
                     (Id, WindowLeft, WindowTop, WindowWidth, WindowHeight, WindowMaximized,
                      SelectedMicrophoneDeviceId, SelectedSpeakerDeviceId, ActiveAudioSource,
-                     OfferedDeviceIds, AutomaticallyCheckForUpdates, ArtPanelSplitRatio)
+                     OfferedDeviceIds, AutomaticallyCheckForUpdates, ArtPanelSplitRatio,
+                     ConsecutiveNoMatchesToClear)
                 VALUES
                     (1, $windowLeft, $windowTop, $windowWidth, $windowHeight, $windowMaximized,
                      $micId, $speakerId, $activeSource, $offeredDeviceIds, $automaticallyCheckForUpdates,
-                     $artPanelSplitRatio)
+                     $artPanelSplitRatio, $consecutiveNoMatchesToClear)
                 ON CONFLICT(Id) DO UPDATE SET
                     WindowLeft = excluded.WindowLeft,
                     WindowTop = excluded.WindowTop,
@@ -72,7 +73,8 @@ public sealed class SettingsService
                     ActiveAudioSource = excluded.ActiveAudioSource,
                     OfferedDeviceIds = excluded.OfferedDeviceIds,
                     AutomaticallyCheckForUpdates = excluded.AutomaticallyCheckForUpdates,
-                    ArtPanelSplitRatio = excluded.ArtPanelSplitRatio;
+                    ArtPanelSplitRatio = excluded.ArtPanelSplitRatio,
+                    ConsecutiveNoMatchesToClear = excluded.ConsecutiveNoMatchesToClear;
                 """;
 
             AddNullableDouble(command, "$windowLeft", settings.WindowLeft);
@@ -86,6 +88,7 @@ public sealed class SettingsService
             command.Parameters.AddWithValue("$offeredDeviceIds", JsonSerializer.Serialize(settings.OfferedDeviceIds));
             command.Parameters.AddWithValue("$automaticallyCheckForUpdates", settings.AutomaticallyCheckForUpdates ? 1 : 0);
             command.Parameters.AddWithValue("$artPanelSplitRatio", settings.ArtPanelSplitRatio);
+            command.Parameters.AddWithValue("$consecutiveNoMatchesToClear", settings.ConsecutiveNoMatchesToClear);
 
             command.ExecuteNonQuery();
         }
@@ -131,6 +134,7 @@ public sealed class SettingsService
         AddColumnIfMissing(connection, existingColumns, "ActiveAudioSource", "TEXT NOT NULL DEFAULT 'Microphone'");
         AddColumnIfMissing(connection, existingColumns, "OfferedDeviceIds", "TEXT NOT NULL DEFAULT '[]'");
         AddColumnIfMissing(connection, existingColumns, "ArtPanelSplitRatio", "REAL NOT NULL DEFAULT 0.5");
+        AddColumnIfMissing(connection, existingColumns, "ConsecutiveNoMatchesToClear", "INTEGER NOT NULL DEFAULT 2");
     }
 
     private static void AddColumnIfMissing(SqliteConnection connection, HashSet<string> existingColumns, string name, string columnDefinition)
@@ -154,7 +158,8 @@ public sealed class SettingsService
             command.CommandText = """
                 SELECT WindowLeft, WindowTop, WindowWidth, WindowHeight, WindowMaximized,
                        SelectedMicrophoneDeviceId, SelectedSpeakerDeviceId, ActiveAudioSource,
-                       OfferedDeviceIds, AutomaticallyCheckForUpdates, ArtPanelSplitRatio
+                       OfferedDeviceIds, AutomaticallyCheckForUpdates, ArtPanelSplitRatio,
+                       ConsecutiveNoMatchesToClear
                 FROM Settings WHERE Id = 1;
                 """;
 
@@ -181,6 +186,7 @@ public sealed class SettingsService
                     : JsonSerializer.Deserialize<HashSet<string>>(reader.GetString(8)) ?? new HashSet<string>(),
                 AutomaticallyCheckForUpdates = reader.GetInt64(9) != 0,
                 ArtPanelSplitRatio = reader.IsDBNull(10) ? 0.5 : reader.GetDouble(10),
+                ConsecutiveNoMatchesToClear = reader.IsDBNull(11) ? 2 : (int)reader.GetInt64(11),
             };
         }
         catch

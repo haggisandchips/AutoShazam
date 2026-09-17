@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.8.0
+
+- **Fewer missed matches (hopefully)**: Shazam's recognition endpoint is known to quietly degrade
+  (silently returning no match instead of an outright error) traffic that looks automated - a
+  fixed User-Agent hit at a metronomic, unvarying interval, which is exactly what Auto Shazam's
+  polling looked like. The User-Agent is now rotated per request and the poll interval jittered by
+  +/-20%.
+
 ## v1.7.0
 
 - **Always on Top**: a toggle next to Auto Shazam in the title bar keeps the window above every

@@ -34,4 +34,8 @@ public sealed class AppSettings
     /// <summary>How many consecutive "no match" results in a row clear the currently displayed
     /// track and its lyrics, rather than leaving a stale match on screen indefinitely.</summary>
     public int ConsecutiveNoMatchesToClear { get; set; } = 2;
+
+    /// <summary>Whether the main window should stay above every other window - toggled often
+    /// enough (title bar, next to Auto Shazam) that it's worth persisting between launches.</summary>
+    public bool AlwaysOnTop { get; set; }
 }

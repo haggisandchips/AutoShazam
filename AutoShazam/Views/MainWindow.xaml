@@ -6,7 +6,8 @@
         Icon="/Assets/app.ico"
         Height="640" Width="960" MinHeight="480" MinWidth="620"
         Background="{StaticResource WindowBackgroundBrush}"
-        WindowStartupLocation="Manual">
+        WindowStartupLocation="Manual"
+        Topmost="{Binding IsAlwaysOnTop}">
 
     <shell:WindowChrome.WindowChrome>
         <shell:WindowChrome CaptionHeight="40"
@@ -81,6 +82,12 @@
                 <ToggleButton Style="{StaticResource ToggleSwitchStyle}"
                               IsChecked="{Binding IsAutoShazamEnabled, Mode=TwoWay}"
                               ToolTip="Automatically re-check at regular intervals for track changes"/>
+
+                <TextBlock Text="Always on Top" VerticalAlignment="Center" Margin="16,0,8,0"
+                           Foreground="{StaticResource TitleBarForeground}" FontSize="12"/>
+                <ToggleButton Style="{StaticResource ToggleSwitchStyle}"
+                              IsChecked="{Binding IsAlwaysOnTop, Mode=TwoWay}"
+                              ToolTip="Keep this window above every other window"/>
 
                 <Popup x:Name="SpeakerDevicePopup" PlacementTarget="{Binding ElementName=SpeakerIconHost}"
                        Placement="Bottom" AllowsTransparency="True" StaysOpen="False" PopupAnimation="Fade">

@@ -74,6 +74,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool isAutoShazamEnabled;
 
+    // Unlike IsAutoShazamEnabled, this is restored from Settings on startup - it's a window
+    // display preference, not a running/stopped state that should always start fresh.
+    [ObservableProperty]
+    private bool isAlwaysOnTop;
+
     [ObservableProperty]
     private bool isBusy;
 
@@ -201,6 +206,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         automaticallyCheckForUpdates = settings.AutomaticallyCheckForUpdates;
         consecutiveNoMatchesToClear = settings.ConsecutiveNoMatchesToClear;
+        isAlwaysOnTop = settings.AlwaysOnTop;
 
         _lyricsSyncTimer.Tick += (_, _) => UpdateCurrentLyricLine();
 
@@ -483,6 +489,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
     partial void OnConsecutiveNoMatchesToClearChanged(int value)
     {
         Settings.ConsecutiveNoMatchesToClear = value;
+        _settingsService.Save(Settings);
+    }
+
+    partial void OnIsAlwaysOnTopChanged(bool value)
+    {
+        Settings.AlwaysOnTop = value;
         _settingsService.Save(Settings);
     }
 

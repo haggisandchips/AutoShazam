@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.7.0
+
+- **Always on Top**: a toggle next to Auto Shazam in the title bar keeps the window above every
+  other window; the setting is remembered between launches.
+
 ## v1.6.0
 
 - **Faster re-checks**: Auto Shazam now re-checks every 5 seconds instead of 12, using a rolling

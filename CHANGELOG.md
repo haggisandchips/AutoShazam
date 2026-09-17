@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.9.0
+
+- **Adaptive re-check interval**: once Auto Shazam confirms a track, the next check waits ~10s
+  instead of the normal ~5s, on the assumption it's probably still the same song playing - a miss
+  on that longer-spaced check drops straight back to ~5s to re-confirm, backing off to 10s again
+  once it does. Cuts query volume roughly in half during the stretches where nothing's actually
+  changed.
+
 ## v1.8.0
 
 - **Fewer missed matches (hopefully)**: Shazam's recognition endpoint is known to quietly degrade

@@ -10,10 +10,13 @@ namespace AutoShazam.Services.Recognition;
 /// through a single gate, so Shazam is never queried concurrently or in a tight loop:
 /// - Only one recognition runs at a time.
 /// - While Auto Shazam is on, checks repeat on a self-paced interval: never more often than
-///   <see cref="MinQueryInterval"/>, normally at <see cref="DefaultQueryInterval"/>, and backed
-///   off (up to <see cref="MaxQueryInterval"/>) whenever a response signals we're going too fast -
-///   see <see cref="ShazamClient"/>'s header inspection - or a request fails outright, so a
-///   persistent problem doesn't turn into a tight retry loop.
+///   <see cref="MinQueryInterval"/>, normally at <see cref="DefaultQueryInterval"/> whenever the
+///   last attempt didn't confirm what's currently playing, backed off to the more relaxed
+///   <see cref="KnownSongQueryInterval"/> once it has (no need to re-confirm a track that's
+///   presumably still playing as often as we poll while we have no idea what's on) - and backed
+///   off further still (up to <see cref="MaxQueryInterval"/>) whenever a response signals we're
+///   going too fast - see <see cref="ShazamClient"/>'s header inspection - or a request fails
+///   outright, so a persistent problem doesn't turn into a tight retry loop.
 /// - A manual button click always attempts to run (subject only to the busy guard), and by
 ///   construction always performs exactly one recognition, using whatever source/device is
 ///   currently selected regardless of whether Auto Shazam is on.
@@ -23,6 +26,7 @@ internal sealed class RecognitionCoordinator : IDisposable
     private static readonly TimeSpan RecognitionClipDuration = TimeSpan.FromSeconds(9);
     private static readonly TimeSpan MinQueryInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DefaultQueryInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan KnownSongQueryInterval = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan MaxQueryInterval = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan PollTickInterval = TimeSpan.FromSeconds(1);
 
@@ -212,7 +216,7 @@ internal sealed class RecognitionCoordinator : IDisposable
             {
                 _currentInterval = outcome.RateLimitedRetryAfter is { } retryAfter
                     ? Clamp(Max(retryAfter, _currentInterval * 2), MinQueryInterval, MaxQueryInterval)
-                    : DefaultQueryInterval;
+                    : outcome.Match is not null ? KnownSongQueryInterval : DefaultQueryInterval;
                 _nextAttemptDueUtc = DateTime.UtcNow + Jittered(_currentInterval);
             }
 

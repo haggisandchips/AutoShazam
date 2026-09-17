@@ -32,7 +32,7 @@ internal sealed class RecognitionCoordinator : IDisposable
 
     private readonly object _sync = new();
     private bool _busy;
-    private DateTime _lastAttemptUtc = DateTime.MinValue;
+    private DateTime _nextAttemptDueUtc = DateTime.MinValue;
     private TimeSpan _currentInterval = DefaultQueryInterval;
     private bool _autoEnabled;
     private AudioSourceKind _kind = AudioSourceKind.Microphone;
@@ -153,13 +153,11 @@ internal sealed class RecognitionCoordinator : IDisposable
 
     private void Tick()
     {
-        TimeSpan interval;
-        DateTime lastAttempt;
+        DateTime nextAttemptDue;
         bool busy;
         lock (_sync)
         {
-            interval = _currentInterval;
-            lastAttempt = _lastAttemptUtc;
+            nextAttemptDue = _nextAttemptDueUtc;
             busy = _busy;
         }
 
@@ -173,7 +171,7 @@ internal sealed class RecognitionCoordinator : IDisposable
         // during the gap until the next check.
         Idle?.Invoke(this, EventArgs.Empty);
 
-        if (DateTime.UtcNow - lastAttempt >= interval)
+        if (DateTime.UtcNow >= nextAttemptDue)
         {
             _ = TryRecognizeAsync();
         }
@@ -189,7 +187,6 @@ internal sealed class RecognitionCoordinator : IDisposable
             }
 
             _busy = true;
-            _lastAttemptUtc = DateTime.UtcNow;
         }
 
         RecognitionStarted?.Invoke(this, EventArgs.Empty);
@@ -216,6 +213,7 @@ internal sealed class RecognitionCoordinator : IDisposable
                 _currentInterval = outcome.RateLimitedRetryAfter is { } retryAfter
                     ? Clamp(Max(retryAfter, _currentInterval * 2), MinQueryInterval, MaxQueryInterval)
                     : DefaultQueryInterval;
+                _nextAttemptDueUtc = DateTime.UtcNow + Jittered(_currentInterval);
             }
 
             if (outcome.Match is null)
@@ -246,6 +244,7 @@ internal sealed class RecognitionCoordinator : IDisposable
             lock (_sync)
             {
                 _currentInterval = Clamp(_currentInterval * 2, MinQueryInterval, MaxQueryInterval);
+                _nextAttemptDueUtc = DateTime.UtcNow + Jittered(_currentInterval);
             }
 
             _log.Write($"Attempt outcome: failed - {ex}");
@@ -264,6 +263,15 @@ internal sealed class RecognitionCoordinator : IDisposable
 
     private static TimeSpan Clamp(TimeSpan value, TimeSpan min, TimeSpan max)
         => value < min ? min : (value > max ? max : value);
+
+    /// <summary>Randomizes an interval by up to +/-20% - Auto Shazam polling at an exact, unvarying
+    /// period is itself a signal that looks like automated traffic to Shazam's endpoint, on top of
+    /// the User-Agent rotation in <see cref="ShazamClient"/>.</summary>
+    private static TimeSpan Jittered(TimeSpan interval)
+    {
+        double factor = 0.8 + Random.Shared.NextDouble() * 0.4; // [0.8, 1.2)
+        return TimeSpan.FromSeconds(interval.TotalSeconds * factor);
+    }
 
     public void Dispose()
     {

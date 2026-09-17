@@ -36,6 +36,34 @@ internal sealed class ShazamClient : IDisposable
     private const double MaxSignatureSeconds = 8;
     private static readonly TimeSpan DefaultRateLimitBackoff = TimeSpan.FromSeconds(30);
 
+    // Rotated per request rather than sent once and reused - Shazam is known to quietly
+    // degrade (not reject outright, just start returning empty matches for genuinely
+    // fingerprinted tracks) traffic that hammers this undocumented endpoint from behind a
+    // single, unchanging User-Agent for a long time, which is exactly what Auto Shazam's
+    // continuous polling looks like from the server's side. Pool borrowed from shazamio, an
+    // actively maintained reverse-engineered client that rotates for the same reason.
+    private static readonly string[] UserAgents =
+    {
+        "Dalvik/2.1.0 (Linux; U; Android 5.0.2; VS980 4G Build/LRX22G)",
+        "Dalvik/1.6.0 (Linux; U; Android 4.4.2; SM-T210 Build/KOT49H)",
+        "Dalvik/2.1.0 (Linux; U; Android 5.1.1; SM-P905V Build/LMY47X)",
+        "Dalvik/1.6.0 (Linux; U; Android 4.4.4; Vodafone Smart Tab 4G Build/KTU84P)",
+        "Dalvik/1.6.0 (Linux; U; Android 4.4.4; SM-G360H Build/KTU84P)",
+        "Dalvik/2.1.0 (Linux; U; Android 5.0.2; SM-S920L Build/LRX22G)",
+        "Dalvik/2.1.0 (Linux; U; Android 6.0.1; SM-G920F Build/MMB29K)",
+        "Dalvik/2.1.0 (Linux; U; Android 5.0; SM-N9005 Build/LRX21V)",
+        "Dalvik/1.6.0 (Linux; U; Android 4.4.2; SM-G7102 Build/KOT49H)",
+        "Dalvik/2.1.0 (Linux; U; Android 6.0.1; SM-G928F Build/MMB29K)",
+        "Dalvik/2.1.0 (Linux; U; Android 5.1.1; SM-J500FN Build/LMY48B)",
+        "Dalvik/1.6.0 (Linux; U; Android 4.4.2; GT-I9500 Build/KOT49H)",
+        "Dalvik/2.1.0 (Linux; U; Android 5.1.1; SM-A310F Build/LMY47X)",
+        "Dalvik/1.6.0 (Linux; U; Android 4.4.4; C6903 Build/14.4.A.0.157)",
+        "Dalvik/2.1.0 (Linux; U; Android 6.0; LG-H815 Build/MRA58K)",
+        "Dalvik/2.1.0 (Linux; U; Android 5.1; XT1045 Build/LPB23.13-61)",
+        "Dalvik/1.6.0 (Linux; U; Android 4.4.2; SM-N7505 Build/KOT49H)",
+        "Dalvik/2.1.0 (Linux; U; Android 6.0.1; SM-G930F Build/MMB29K)",
+    };
+
     private readonly HttpClient _http;
     private readonly RecognitionLog _log;
 
@@ -50,8 +78,10 @@ internal sealed class ShazamClient : IDisposable
         _http.DefaultRequestHeaders.Add("X-Shazam-AppVersion", "14.1.0");
         _http.DefaultRequestHeaders.Add("Accept", "*/*");
         _http.DefaultRequestHeaders.Add("Accept-Language", Lang);
-        _http.DefaultRequestHeaders.UserAgent.ParseAdd("Shazam/3685 CFNetwork/1197 Darwin/20.0.0");
+        // Deliberately not a default header - see RecognizeAsync, which picks a fresh one per call.
     }
+
+    private static string PickUserAgent() => UserAgents[Random.Shared.Next(UserAgents.Length)];
 
     public async Task<ShazamRecognizeOutcome> RecognizeAsync(short[] pcm16kHzMonoSamples, CancellationToken cancellationToken)
     {
@@ -88,7 +118,10 @@ internal sealed class ShazamClient : IDisposable
             geolocation = new { },
         };
 
-        using var response = await _http.PostAsJsonAsync(url, payload, cancellationToken).ConfigureAwait(false);
+        using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = JsonContent.Create(payload) };
+        request.Headers.UserAgent.ParseAdd(PickUserAgent());
+
+        using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
 
         var rateLimit = TryGetRateLimitRetryAfter(response);
         if (response.StatusCode == HttpStatusCode.TooManyRequests)

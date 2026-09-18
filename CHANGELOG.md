@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.10.0
+
+- **Fewer 429s (hopefully)**: the polling floor moved from 5s to 10s, and the known-song backoff
+  from 10s to 20s - both were still triggering rate limiting even after the earlier User-Agent
+  rotation and jitter changes.
+- These, plus the rate-limit fallback backoff (used only when Shazam's response doesn't include its
+  own Retry-After), are now tunable via an optional `tuning.config` file in AutoShazam's local
+  AppData folder - a manual escape hatch, not a user-facing setting.
+- `recognition.log` is now archived (up to 5 rotations: `recognition.log.1` .. `.5`) instead of
+  being deleted outright once it gets big, so some history survives a rollover.
+
 ## v1.9.0
 
 - **Adaptive re-check interval**: once Auto Shazam confirms a track, the next check waits ~10s

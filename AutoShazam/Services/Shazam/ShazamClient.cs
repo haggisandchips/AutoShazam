@@ -34,7 +34,6 @@ internal sealed class ShazamClient : IDisposable
     private const string Lang = "en";
     private const string Region = "US";
     private const double MaxSignatureSeconds = 8;
-    private static readonly TimeSpan DefaultRateLimitBackoff = TimeSpan.FromSeconds(30);
 
     // Rotated per request rather than sent once and reused - Shazam is known to quietly
     // degrade (not reject outright, just start returning empty matches for genuinely
@@ -67,9 +66,15 @@ internal sealed class ShazamClient : IDisposable
     private readonly HttpClient _http;
     private readonly RecognitionLog _log;
 
-    public ShazamClient(RecognitionLog log)
+    /// <summary>Backoff used when a rate-limit signal doesn't come with its own Retry-After - see
+    /// <see cref="TryGetRateLimitRetryAfter"/>, which prefers an actual header value over this
+    /// whenever Shazam sends one.</summary>
+    private readonly TimeSpan _rateLimitFallbackBackoff;
+
+    public ShazamClient(RecognitionLog log, TimeSpan rateLimitFallbackBackoff)
     {
         _log = log;
+        _rateLimitFallbackBackoff = rateLimitFallbackBackoff;
         _http = new HttpClient
         {
             Timeout = TimeSpan.FromSeconds(15),
@@ -126,7 +131,7 @@ internal sealed class ShazamClient : IDisposable
         var rateLimit = TryGetRateLimitRetryAfter(response);
         if (response.StatusCode == HttpStatusCode.TooManyRequests)
         {
-            var retryAfter = rateLimit ?? DefaultRateLimitBackoff;
+            var retryAfter = rateLimit ?? _rateLimitFallbackBackoff;
             _log.Write($"Recognize: rate limited by Shazam (429) - backing off {retryAfter.TotalSeconds:F0}s.");
             return new ShazamRecognizeOutcome(null, retryAfter);
         }
@@ -164,7 +169,7 @@ internal sealed class ShazamClient : IDisposable
     /// Shazam's endpoint is undocumented and unofficial, so this is defensive: honor whatever
     /// signal it happens to send rather than assuming only 429 ever means "slow down."
     /// </summary>
-    private static TimeSpan? TryGetRateLimitRetryAfter(HttpResponseMessage response)
+    private TimeSpan? TryGetRateLimitRetryAfter(HttpResponseMessage response)
     {
         if (response.Headers.RetryAfter is { } retryAfter)
         {
@@ -189,7 +194,7 @@ internal sealed class ShazamClient : IDisposable
                 && int.TryParse(header.Value.FirstOrDefault(), out int remaining)
                 && remaining <= 0)
             {
-                return DefaultRateLimitBackoff;
+                return _rateLimitFallbackBackoff;
             }
         }
 

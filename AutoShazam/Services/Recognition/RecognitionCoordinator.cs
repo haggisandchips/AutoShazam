@@ -10,15 +10,16 @@ namespace AutoShazam.Services.Recognition;
 /// Orchestrates recognition attempts (manual button clicks and Auto Shazam's periodic checks)
 /// through a single gate, so Shazam is never queried concurrently or in a tight loop:
 /// - Only one recognition runs at a time.
-/// - While Auto Shazam is on, checks repeat on a self-paced interval: never more often than
-///   <see cref="_minQueryInterval"/> (see <see cref="TuningConfig"/> - overridable without a
-///   release, but deliberately not a user-facing setting), normally at that same interval whenever
-///   the last attempt didn't confirm what's currently playing, backed off to double that
-///   (<see cref="_knownSongQueryInterval"/>) once it has (no need to re-confirm a track that's
-///   presumably still playing as often as we poll while we have no idea what's on) - and backed
-///   off further still (up to <see cref="MaxQueryInterval"/>) whenever a response signals we're
-///   going too fast - see <see cref="ShazamClient"/>'s header inspection - or a request fails
-///   outright, so a persistent problem doesn't turn into a tight retry loop.
+/// - While Auto Shazam is on, checks repeat on a self-paced interval, all sourced from
+///   <see cref="TuningConfig"/> (overridable without a release, but deliberately not a
+///   user-facing setting): never more often than <see cref="_minQueryInterval"/>, normally at
+///   that same interval whenever the last attempt didn't confirm what's currently playing, backed
+///   off to the independently-configured <see cref="_knownSongQueryInterval"/> once it has (no
+///   need to re-confirm a track that's presumably still playing as often as we poll while we have
+///   no idea what's on) - and backed off further still (up to <see cref="MaxQueryInterval"/>)
+///   whenever a response signals we're going too fast - see <see cref="ShazamClient"/>'s header
+///   inspection - or a request fails outright, so a persistent problem doesn't turn into a tight
+///   retry loop.
 /// - A manual button click always attempts to run (subject only to the busy guard), and by
 ///   construction always performs exactly one recognition, using whatever source/device is
 ///   currently selected regardless of whether Auto Shazam is on.
@@ -78,11 +79,13 @@ internal sealed class RecognitionCoordinator : IDisposable
 
     public RecognitionCoordinator(string appDataRoot)
     {
-        _log = new RecognitionLog(appDataRoot);
-        _shazamClient = new ShazamClient(_log);
+        var tuning = TuningConfig.Load(appDataRoot);
 
-        _minQueryInterval = TuningConfig.Load(appDataRoot).MinQueryInterval;
-        _knownSongQueryInterval = _minQueryInterval * 2;
+        _log = new RecognitionLog(appDataRoot);
+        _shazamClient = new ShazamClient(_log, tuning.RateLimitFallbackBackoff);
+
+        _minQueryInterval = tuning.MinQueryInterval;
+        _knownSongQueryInterval = tuning.KnownSongQueryInterval;
         _currentInterval = _minQueryInterval;
 
         _capture.LevelSample += (_, e) => LevelChanged?.Invoke(this, e.DbFs);
